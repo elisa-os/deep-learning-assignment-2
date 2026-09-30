@@ -9,29 +9,24 @@ Implementa os 4 artefatos obrigatórios:
 
 from __future__ import annotations
 
-import json
+import uuid
 from pathlib import Path
 
 import numpy as np
 import torch
 
 from pa2.config import Config
-from pa2.utils import set_seed, PerSequenceMetricsWriter
+from pa2.utils import PerSequenceMetricsWriter
 from pa2.utils.visualize import save_figure, generate_tracking_colors
 from pa2.synthetic_video import (
     SyntheticVideoDataset,
     SimulatedDetector,
+    SyntheticSequence,
     generate_synthetic_sequence,
     make_synthetic_loader,
 )
 from pa2.metrics.tracking import (
     evaluate_tracking_sequence,
-    compute_idf1,
-    count_id_switches,
-    count_fragmentations,
-    match_global,
-    _parse_tracks_to_frames,
-    match_frame_by_iou,
 )
 from pa2.association.matching import GreedyMatcher
 
@@ -43,7 +38,6 @@ def run_parte0(cfg: Config, device: torch.device) -> None:
     print("[*] Validando métricas de tracking...")
     print("[*] Rodando baseline no piso fácil...")
 
-    set_seed(cfg.seed)
     output_dir = Path(cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -205,23 +199,17 @@ def _save_occlusion_demo(seq: SyntheticSequence, output_dir: Path) -> None:
                 x, y, w, h = det["bb_left"], det["bb_top"], det["bb_width"], det["bb_height"]
                 color = colors[det["id"] % len(colors)]
                 rect = Rectangle((x, y), w, h, linewidth=1.5,
-                                 edgecolor=color[:3], facecolor='none')
+                                 edgecolor=color[:3], facecolor="none")
                 ax.add_patch(rect)
                 ax.text(x, y - 3, str(det["id"]), fontsize=8,
-                        color='white', backgroundcolor=color[:3], alpha=0.8)
+                        color="white", backgroundcolor=color[:3], alpha=0.8)
 
     plt.tight_layout()
     save_figure(fig, output_dir / "parte0_occlusion_demo.png", dpi=120)
 
 
 def _run_metric_tests(cfg: Config, output_dir: Path) -> None:
-    """Executa os 3 casos de teste construídos à mão para validar as métricas.
-
-    Os 3 casos são:
-    (a) pred = GT → IDF1=1, zero switches, zero fragmentações
-    (b) duas identidades trocadas a partir do quadro k → contagem exata de switches
-    (c) uma track partida em duas no meio → efeito esperado em IDF1 e fragmentações
-    """
+    """Executa os 3 casos de teste construídos à mão para validar as métricas."""
     num_frames = 30
     frame_size = 128
 
@@ -364,10 +352,10 @@ def _save_tracking_demo(seq: SyntheticSequence, tracks_pred: list[dict], save_pa
             x, y, w, h = det["bb_left"], det["bb_top"], det["bb_width"], det["bb_height"]
             color = colors[det["id"] % len(colors)]
             rect = Rectangle((x, y), w, h, linewidth=1.5,
-                             edgecolor=color[:3], facecolor='none')
+                             edgecolor=color[:3], facecolor="none")
             axes[0].add_patch(rect)
             axes[0].text(x, y - 3, str(det["id"]), fontsize=8,
-                         color='white', backgroundcolor=color[:3], alpha=0.8)
+                         color="white", backgroundcolor=color[:3], alpha=0.8)
 
     axes[1].imshow(seq.frames[mid_frame])
     axes[1].set_title("Predições do Rastreador")
@@ -376,12 +364,12 @@ def _save_tracking_demo(seq: SyntheticSequence, tracks_pred: list[dict], save_pa
     for det in tracks_pred:
         if det["frame"] == mid_frame + 1:
             x, y, w, h = det["bb_left"], det["bb_top"], det["bb_width"], det["bb_height"]
-            color = 'cyan' if det["id"] > 0 else 'red'
+            color = "cyan" if det["id"] > 0 else "red"
             rect = Rectangle((x, y), w, h, linewidth=1.5,
-                             edgecolor=color, facecolor='none', linestyle='--', alpha=0.8)
+                             edgecolor=color, facecolor="none", linestyle="--", alpha=0.8)
             axes[1].add_patch(rect)
             axes[1].text(x + w, y - 3, str(det["id"]), fontsize=8,
-                         color=color, backgroundcolor='black', alpha=0.7)
+                         color=color, backgroundcolor="black", alpha=0.7)
 
     plt.tight_layout()
     save_figure(fig, save_path, dpi=120)
@@ -392,14 +380,25 @@ def _run_parameter_sweep(cfg: Config, output_dir: Path) -> None:
 
     O gráfico obrigatório da Parte 0: IDF1 vs. duração de oclusão e vs. velocidade,
     para diferentes números de objetos.
+
+    Detector perfeito → a degradação vem só dos parâmetros do gerador (n_objects,
+    velocity_scale, occlusion_duration), não do detector.
+
+    Matcher ingênuo com IoU=0.3 e max_age=2 — típico do baseline ingênuo que não
+    conhece a cena. Com max_age curto, tracks morrem rápido quando um objeto é
+    ocluído ou se move rápido e o IoU cai abaixo de 0.3, gerando fragmentações e
+    ID switches. Isso mostra onde o baseline começa a quebrar à medida que o
+    cenário piora.
     """
     print("Variação de parâmetros:")
     print("  n_objects: [3, 6, 9, 12]")
-    print("  velocity_scale: [0.3, 0.8, 1.5]")
+    print("  velocity_scale: [0.3, 0.8, 1.5, 3.0, 5.0]")
     print("  occlusion_duration: [0, 5, 10, 20]")
+    print("  Detector: perfeito (sem ruído/FP)")
+    print("  Matcher: baseline ingênuo (IoU=0.3, max_age=2)")
 
     n_objects_list = [3, 6, 9, 12]
-    velocity_list = [0.3, 0.8, 1.5]
+    velocity_list = [0.3, 0.8, 1.5, 3.0, 5.0]
     occlusion_list = [0, 5, 10, 20]
 
     results: list[dict] = []
@@ -419,34 +418,31 @@ def _run_parameter_sweep(cfg: Config, output_dir: Path) -> None:
                     seed_offset=seed_val,
                 )
 
-                # Detector com ruído moderado para simular condições reais
-                sim = SimulatedDetector(
-                    drop_rate=0.05,
-                    noise_std=2.0,
-                    fp_rate=0.1,
-                    rng=np.random.default_rng(seed_val + 999),
-                )
-                detections = sim.detect(seq.true_boxes, seq.frame_size)
+                # Detector perfeito: usa as caixas do GT direto
+                detections = [dict(d) for d in seq.true_boxes]
 
-                matcher = GreedyMatcher(iou_threshold=0.5, max_age=10, min_hits=1)
+                # Matcher ingênuo com IoU baixo e max_age curto — quebra sob occlusão e velocidade
+                matcher = GreedyMatcher(iou_threshold=0.3, max_age=2, min_hits=1)
                 tracks_pred = matcher.run(detections, seq.num_frames)
 
+                # Métrica com IoU 0.5 (padrão do assignment, não do matcher)
                 result = evaluate_tracking_sequence(tracks_pred, seq.gt_tracks, iou_threshold=0.5)
 
                 results.append({
                     "n_objects": n_obj,
                     "velocity_scale": vel,
                     "occlusion_duration": oc,
-                    "idf1": result['idf1'],
-                    "id_switches": result['id_switches'],
-                    "fragmentations": result['fragmentations'],
-                    "n_pred_ids": result['n_pred_ids'],
-                    "ratio_pred_gt": result['n_pred_ids'] / max(1, result['n_gt_ids']),
+                    "idf1": float(result["idf1"]),
+                    "id_switches": int(result["id_switches"]),
+                    "fragmentations": int(result["fragmentations"]),
+                    "n_pred_ids": int(result["n_pred_ids"]),
+                    "ratio_pred_gt": float(result["n_pred_ids"]) / max(1, int(result["n_gt_ids"])),
                 })
 
+    # Ordena por IDF1 para destacar o quinto pior (o que o enunciado pede como "quebra")
     results.sort(key=lambda r: r["idf1"], reverse=True)
 
-    print("\n  Resultados (ordenados por IDF1):")
+    print("\n  Resultados (ordenados por IDF1, destaca onde o baseline quebra):")
     print(f"  {'n_obj':>6} {'vel':>6} {'occl':>6} {'IDF1':>8} {'sw':>5} {'frag':>5} {'ratio':>7}")
     print("  " + "-" * 50)
     for r in results:
@@ -461,37 +457,42 @@ def _run_parameter_sweep(cfg: Config, output_dir: Path) -> None:
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Painel 1: IDF1 vs oclusão para diferentes n_objects
+    # Painel 1: IDF1 vs oclusão para diferentes n_objects/velocidade
     for n_obj in n_objects_list:
-        subset = [r for r in results if r["n_objects"] == n_obj]
-        subset.sort(key=lambda r: r["occlusion_duration"])
-        x = [r["occlusion_duration"] for r in subset]
-        y = [r["idf1"] for r in subset]
-        axes[0].plot(x, y, 'o-', label=f'n_obj={n_obj}')
+        for vel in velocity_list:
+            subset = [r for r in results if r["n_objects"] == n_obj and r["velocity_scale"] == vel]
+            subset.sort(key=lambda r: r["occlusion_duration"])
+            x = [r["occlusion_duration"] for r in subset]
+            y = [r["idf1"] for r in subset]
+            axes[0].plot(x, y, "o-", label=f"n_obj={n_obj}, vel={vel}")
 
     axes[0].set_xlabel("Duração de oclusão (quadros)")
     axes[0].set_ylabel("IDF1")
-    axes[0].set_title("IDF1 vs. Duração de Oclusão")
-    axes[0].legend()
+    axes[0].set_title("IDF1 vs. Duração de Oclusão\n(baseline ingênuo, detector perfeito)")
+    axes[0].legend(fontsize=7)
     axes[0].grid(alpha=0.3)
+    axes[0].axhline(y=0.5, color="red", linestyle="--", alpha=0.5, label="IDF1=0.5")
 
-    # Painel 2: IDF1 vs velocidade para diferentes n_objects
+    # Painel 2: IDF1 vs velocidade para diferentes n_objects/oclusão
     for n_obj in n_objects_list:
-        subset = [r for r in results if r["n_objects"] == n_obj and r["occlusion_duration"] == 0]
-        subset.sort(key=lambda r: r["velocity_scale"])
-        x = [r["velocity_scale"] for r in subset]
-        y = [r["idf1"] for r in subset]
-        axes[1].plot(x, y, 's-', label=f'n_obj={n_obj}')
+        for oc in occlusion_list:
+            subset = [r for r in results if r["n_objects"] == n_obj and r["occlusion_duration"] == oc]
+            subset.sort(key=lambda r: r["velocity_scale"])
+            x = [r["velocity_scale"] for r in subset]
+            y = [r["idf1"] for r in subset]
+            axes[1].plot(x, y, "s-", label=f"n_obj={n_obj}, occl={oc}")
 
     axes[1].set_xlabel("Velocity scale")
     axes[1].set_ylabel("IDF1")
-    axes[1].set_title("IDF1 vs. Velocidade (sem oclusão)")
-    axes[1].legend()
+    axes[1].set_title("IDF1 vs. Velocidade\n(baseline ingênuo, detector perfeito)")
+    axes[1].legend(fontsize=7)
     axes[1].grid(alpha=0.3)
+    axes[1].axhline(y=0.5, color="red", linestyle="--", alpha=0.5)
 
     plt.suptitle("Degradação do Baseline Ingênuo — Onde o Baseline Quebra", fontsize=12)
     plt.tight_layout()
     save_figure(fig, output_dir / "parte0_parameter_sweep.png", dpi=120)
 
+    import json
     with open(output_dir / "parte0_sweep_results.json", "w") as f:
         json.dump(results, f, indent=2)
