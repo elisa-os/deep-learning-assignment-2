@@ -1,0 +1,40 @@
+# Ignorado pelo Git — PA2
+
+# Ambientes virtuais
+.venv/
+*.egg-info/
+
+# Outputs do pipeline (métricas, gráficos, checkpoints)
+outputs/
+!outputs/.gitkeep
+
+# Dados baixados (MOT17 — pacote grande, não commitar)
+pa2/data/
+!pa2/data/.gitkeep
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log de treinamento (se usar tensorboard/wandb)
+logs/
+wandb/
+
+# Arquivos de teste locais
+*.tmp
+*.bak

@@ -1,0 +1,133 @@
+# Configuração de treinamento (PA2) — por parte
+# Edite este arquivo para mudar qualquer parâmetro.
+# Uso: uv run pa2 0 | uv run pa2 1 | uv run pa2 2 | ...
+
+# ── Comum ────────────────────────────────────────────────
+seed: 42
+output_dir: outputs
+
+# ── Parte 0 — Testes sintéticos ───────────────────────────
+parte0:
+  synthetic: true
+  data_dir: null
+  n_sequences: 20
+  n_frames: 45
+  frame_size: 128
+  n_objects_min: 5
+  n_objects_max: 12
+  occlusion_duration_min: 5
+  occlusion_duration_max: 15
+  velocity_scale: 1.0
+  noise_level: 0.0
+  contrast_scale: 1.0
+  batch_size: 1
+  num_workers: 0
+  epochs: 5
+  lr: 1.0e-3
+  checkpoint: null
+  eval_only: false
+  detector_drop_rate: 0.0
+  detector_noise: 0.0
+  detector_fp_rate: 0.0
+
+# ── Parte 1 — Baseline por quadro ─────────────────────────
+parte1:
+  synthetic: false
+  data_dir: pa2/data/MOT17
+  sequence_split:
+    train: []
+    val: []
+    test: []
+  detector_source: "FRCNN"
+  use_torchvision_detector: false
+  batch_size: 1
+  num_workers: 0
+  epochs: 0
+  lr: 1.0e-3
+  checkpoint: null
+  eval_only: true
+  association:
+    method: "greedy"
+    iou_threshold: 0.3
+    max_age: 30
+    min_hits: 3
+
+# ── Parte 2 — Trilha A: RNN como modelo de movimento ─────
+parte2:
+  synthetic: false
+  data_dir: pa2/data/MOT17
+  sequence_split:
+    train: []
+    val: []
+    test: []
+  detector_source: "FRCNN"
+  use_torchvision_detector: false
+  batch_size: 1
+  num_workers: 0
+  epochs: 30
+  lr: 1.0e-3
+  checkpoint: null
+  eval_only: false
+  rnn:
+    type: "LSTM"
+    input_size: 5
+    hidden_size: 64
+    num_layers: 1
+    dropout: 0.0
+    use_delta_t: true
+    predict_uncertainty: false
+  association:
+    method: "greedy"
+    iou_threshold: 0.3
+    max_age: 30
+    min_hits: 3
+  window_T: 32
+  teacher_forcing_ratio: 1.0
+
+# ── Parte 3 — Ablação: Eixo 2 (regime de treino) ─────────
+parte3:
+  synthetic: false
+  data_dir: pa2/data/MOT17
+  sequence_split:
+    train: []
+    val: []
+    test: []
+  detector_source: "FRCNN"
+  batch_size: 1
+  num_workers: 0
+  epochs: 30
+  lr: 1.0e-3
+  rnn:
+    type: "LSTM"
+    input_size: 5
+    hidden_size: 64
+    num_layers: 1
+    dropout: 0.0
+    use_delta_t: true
+    predict_uncertainty: false
+  association:
+    method: "greedy"
+    iou_threshold: 0.3
+    max_age: 30
+    min_hits: 3
+  window_T: 32
+  ablation:
+    axis: "eixo2"
+    seeds: [42, 123, 456]
+    regimes:
+      - name: "teacher_forcing"
+        teacher_forcing_ratio: 1.0
+        gradient_clipping: true
+        grad_clip_value: 1.0
+      - name: "scheduled_sampling"
+        teacher_forcing_ratio: 0.5
+        gradient_clipping: true
+        grad_clip_value: 1.0
+      - name: "free_running"
+        teacher_forcing_ratio: 0.0
+        gradient_clipping: true
+        grad_clip_value: 1.0
+      - name: "free_running_no_clip"
+        teacher_forcing_ratio: 0.0
+        gradient_clipping: false
+        grad_clip_value: 1.0

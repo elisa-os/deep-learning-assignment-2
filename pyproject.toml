@@ -1,0 +1,42 @@
+[project]
+name = "deep-learning-assignment-2"
+version = "0.1.0"
+description = "PA2 — Identidade ao longo do tempo: detecção, recorrência e rastreamento (Aprendizado Profundo, FGV)"
+readme = "README.md"
+authors = [
+    { name = "Bruno Ferreira", email = "brunoferreira17k@gmail.com" },
+    { name = "Elisa Soares" },
+]
+requires-python = ">=3.11"
+dependencies = [
+    "albumentations>=2.0.8",
+    "matplotlib>=3.11.1",
+    "numpy>=2.4.6",
+    "opencv-python-headless>=5.0.0",
+    "pandas>=3.0.5",
+    "pyyaml>=6.0.3",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.0",
+    "torch>=2.6.0",
+    "torchvision>=0.20.0",
+    "tqdm>=4.66.0",
+]
+
+[project.scripts]
+pa2 = "pa2.main:main"
+pa2-part0 = "pa2.part0:main"
+pa2-ablation = "pa2.ablation:main"
+
+[tool.uv.build-backend]
+module-root = "."
+module-name = "pa2"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu118" }
+torchvision = { index = "pytorch-cu118" }
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
