@@ -7,8 +7,8 @@ import pandas as pd
 import torch
 
 from pa2.analysis.gallery import pick_failures
-from pa2.analysis.memory import (gradient_horizon, horizon_summary, sample_trials, survival_experiment,
-                                 survival_table, wilson)
+from pa2.analysis.memory import (bootstrap_n50, gradient_horizon, horizon_summary, n50_curve, sample_trials,
+                                 survival_experiment, survival_table, wilson)
 from pa2.analysis.runner import match_gt_to_dets, run_trace, sorted_dets
 from pa2.association.motion import ConstantVelocityMotion, RNNMotion, StaticMotion
 from pa2.models import MotionRNN
@@ -138,3 +138,32 @@ def test_pick_failures_rules():
     ])
     p = pick_failures(None, meas)
     assert p == {"oclusao_longa": 0, "buraco_curto_camera_movel": 1, "troca_entre_pessoas": 2}
+
+
+def _fake_trials(p_keep, n_per=300, seed=0):
+    """p_keep: {método: {N: prob. de manter o id}}."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for m, d in p_keep.items():
+        for N, p in d.items():
+            for k in rng.random(n_per) < p:
+                rows.append({"method": m, "N": N, "outcome": "kept" if k else "reborn"})
+    return pd.DataFrame(rows)
+
+
+def test_n50_curve_edge_cases():
+    assert n50_curve([0, 10, 20], [1.0, 0.8, 0.2]) == 15.0
+    assert n50_curve([0, 10, 20], [1.0, 0.9, 0.7]) == 20.0          # nunca cai abaixo de 0,5
+    assert n50_curve([0, 10], [0.4, 0.2]) == 0.0                     # já começa abaixo
+
+
+def test_bootstrap_n50_brackets_the_point_estimate_and_separates_methods():
+    good = {0: 1.0, 10: 0.9, 20: 0.7, 30: 0.4, 40: 0.2}
+    bad = {0: 1.0, 10: 0.6, 20: 0.3, 30: 0.1, 40: 0.05}
+    b = bootstrap_n50(_fake_trials({"rnn": good, "static": bad, "const_vel": bad}), n_boot=300).set_index("metodo")
+    r = b.loc["rnn"]
+    assert r.ci_lo <= r.n50 <= r.ci_hi
+    d = b.loc["rnn - static"]
+    assert d.ci_lo > 0 and d.p_gt_0 > 0.99                           # RNN claramente melhor
+    same = bootstrap_n50(_fake_trials({"rnn": bad, "static": bad}, seed=1), n_boot=300).set_index("metodo")
+    assert same.loc["rnn - static"].ci_lo < 0 < same.loc["rnn - static"].ci_hi   # iguais: IC cobre 0

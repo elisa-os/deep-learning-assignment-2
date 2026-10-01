@@ -81,7 +81,7 @@ pa2/
 
 ---
 
-## Fase 1 — Parte 0: Testes sintéticos (target: até X/2026)
+## Fase 1 — Parte 0: Testes sintéticos
 
 **Gerador de vídeos sintéticos (`pa2/synthetic_video/synthetic.py`):**
 - Vídeos 128×128, 30-60 quadros
@@ -113,7 +113,7 @@ pa2/
 
 ---
 
-## Fase 2 — Download MOT17 + Parte 1 baseline (target: até X/2026)
+## Fase 2 — Download MOT17 + Parte 1 baseline
 
 1. **Download:** pacote só de anotações (~10 MB) de https://motchallenge.net/data/MOT17/
 2. **`pa2/mot17/loader.py`:** ler dog.txt (frame, id, bb_left, bb_top, bb_width, bb_height, conf, class, visibility), carregar detecções públicas (DPM/Faster R-CNN/SDP), split por sequência (pelo menos 1 sequência inteira de validação que o modelo nunca vê)
@@ -129,7 +129,7 @@ pa2/
 
 ---
 
-## Fase 3 — Parte 2: Memória temporal (escolher UMA trilha) (target: até X/2026)
+## Fase 3 — Parte 2: Memória temporal (escolher UMA trilha)
 
 **Decisão tomada: Trilha A** (só há as anotações do MOT17 em `data/`; a Trilha B precisa dos recortes das imagens).
 
@@ -255,7 +255,7 @@ de maior IDF1 médio de validação; checkpoint da seed 42 (sem escolher a melho
 
 ---
 
-## Fase 6 — Parte 5: Teste de estresse (escolher 1) (target: até X/2026)
+## Fase 6 — Parte 5: Teste de estresse (escolher 1)
 
 **DECISAO PENDENTE: Qual teste?**
 
@@ -305,6 +305,24 @@ Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
 - [ ] Opcional: teste de estresse do clipping (lr ×5 e/ou célula RNN simples, que deve ser mais instável) para
       mostrar *quando* ele passa a importar; hoje "não importa" vale só para este setup.
 - [ ] A medida "IoU só com as próprias previsões a partir do 1º quadro" não discrimina regimes; pode sair do relatório.
+
+**Revisão da Parte 4 e do repositório (01/10) — adiado**
+- [ ] Reproduzir do zero a etapa B da Parte 4 (oclusões injetadas; > 1 h, vídeo 04 é o gargalo): hoje só foi
+      recomputada a partir de `parte4_oclusoes_injetadas.csv`. Rodar à noite com `uv run pa2 4`.
+- [ ] Higiene de código: extrair helpers compartilhados (`_Source`, `_best_f1_threshold`, `_pick_variant`, `_track`,
+      `_clear_match`, `_frame_range`, `_parse_tracks_to_frames` são importados com `_` entre módulos); remover código
+      morto herdado do PA1 (`BoxAssociation`, `TrackManager`, `track_matches_iou`, `simple_greedy_match`,
+      `HungarianMatcher`, 5 funções de `utils/visualize.py`, `make_synthetic_loader`); unificar `GreedyMatcher` (Parte 0)
+      e `IoUTracker`.
+- [ ] `outputs/` mistura convenções (`parte0_`/`parte1_`/`parte2_` soltos, `final/`, `final_parte4/`,
+      `parte3_ablation/`); padronizar em `outputs/parteN/` e atualizar README e relatórios juntos.
+- [ ] `data/MOT17Labels.zip` (9,7 MB) está versionado e é redundante com as pastas extraídas.
+- [ ] Cosmético: títulos das figuras de falha saem sem acento ("oclusao longa") e há muito espaço vazio entre as
+      tiras de quadros e os gráficos.
+- [ ] `input_size`, `dropout`, `num_layers` do YAML seguem sem efeito (ver backlog de configuração).
+- [x] Feito na revisão: README (status, árvore, saídas), `CLAUDE.md`, relatório da Parte 4 (N50 com IC por bootstrap,
+      refutação da correção pelo critério certo, resultado misto do fator 1,15), correção da frase sobre a seed 42 em
+      `RELATORY_PART2.md` §6, mensagem final de `part4.py`, remoção do `eval_iou` sem efeito.
 
 **Parte 2**
 - [ ] Relatório: dizer que a validação (vídeos 09 e 13) escolheu a melhor época, logo não é independente; e que o

@@ -63,7 +63,6 @@ class AssociationConfig:
     max_age: int = 30                    # quadros sem observação antes de matar track
     min_hits: int = 3                    # hits mínimos para track válida
     min_conf: float | None = None        # confiança mínima das detecções (None = limiar do detector)
-    eval_iou: float = 0.5                # limiar de IoU das métricas (IDF1, switches, AP50)
 
 
 @dataclass
@@ -175,7 +174,7 @@ def load_config(
         data_fields = {"synthetic", "data_dir", "batch_size", "num_workers", "sequence_split"}
         model_fields = {"rnn_type", "input_size", "hidden_size", "num_layers", "dropout",
                         "use_delta_t", "predict_uncertainty"}
-        assoc_fields = {"method", "iou_threshold", "max_age", "min_hits", "min_conf", "eval_iou"}
+        assoc_fields = {"method", "iou_threshold", "max_age", "min_hits", "min_conf"}
         rnn_fields = {"window_T", "teacher_forcing_ratio", "gap_prob", "max_gap", "obs_noise",
                       "train_strides", "steps_per_epoch"}
         train_fields = {"epochs", "lr", "checkpoint", "eval_only", "gradient_clipping", "grad_clip_value"}

@@ -121,8 +121,9 @@ regimes (checkpoint da seed 42). O teacher forcing empata no IDF1 com a receita 
 (0,579 ± 0,003 contra 0,573 ± 0,010 em 3 seeds: **empate, não vitória**) e é melhor no
 rollout às cegas na validação (IoU 0,46 contra 0,41 em k = 10, nas 3 seeds). Os buracos
 simulados da Parte 2 não trouxeram ganho mensurável, e o modelo sem eles é mais simples.
-Ao citar desempenho, usar a média das 3 seeds da Parte 3; o número desta seed é o maior dos
-três e portanto levemente otimista.
+Ao citar desempenho, usar a média das 3 seeds da Parte 3 (IDF1 de validação 0,5795 ± 0,0035). O número
+desta seed (0,576) é o **menor** dos três (0,576 / 0,583 / 0,580), portanto levemente conservador. (Uma versão
+anterior deste texto dizia o contrário; foi corrigida na revisão da Parte 4.)
 
 **Ressalva de protocolo.** Esse critério usou os vídeos de validação (09 e 13). O enunciado pede
 uma sequência "nunca vista" e o MOT17 não tem GT de teste, então os números de validação têm um

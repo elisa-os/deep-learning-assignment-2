@@ -52,7 +52,6 @@ parte1:
     max_age: 30
     min_hits: 3
     min_conf: null     # null = limiar de score que maximiza o F1 no treino (ver Parte 1)
-    eval_iou: 0.5
 
 # ── Parte 2 — Trilha A: RNN como modelo de movimento ─────
 # Detecções congeladas (as mesmas da Parte 1: SDP, score >= limiar da Parte 1).
@@ -89,7 +88,6 @@ parte2:
     max_age: 30
     min_hits: 3
     min_conf: null       # null = limiar de score da Parte 1 (maximiza o F1 no treino)
-    eval_iou: 0.5
   window_T: 32
   teacher_forcing_ratio: 1.0
   gap_prob: 0.5
@@ -133,7 +131,6 @@ parte3:
     max_age: 30
     min_hits: 3
     min_conf: null
-    eval_iou: 0.5
   window_T: 32
   obs_noise: [0.06, 0.025, 0.08, 0.045]
   train_strides: [1]
@@ -197,6 +194,5 @@ parte4:
     max_age: 30
     min_hits: 3
     min_conf: null
-    eval_iou: 0.5
   window_T: 32
   obs_noise: [0.06, 0.025, 0.08, 0.045]

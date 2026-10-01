@@ -1,6 +1,9 @@
 # Relatório — Parte 4 (horizonte de memória, galeria de falhas, correção)
 
 **Reproduzir:** `uv run pa2 4` (≈40 min em CPU do zero; a etapa D é retomável e usa `parte4_correcao.csv` se existir) e `uv run pytest`. Saídas em `outputs/final_parte4/`.
+**Verificado (revisão de 01/10):** etapa A reproduzida do zero com CSV idêntico; cálculo do gradiente conferido contra
+diferenças finitas; números deste relatório recomputados a partir dos CSVs. A etapa B (oclusões injetadas) **não foi
+reproduzida do zero** (o vídeo 04 leva > 1 h); só recomputada a partir de `parte4_oclusoes_injetadas.csv`.
 **Modelo:** o final (`outputs/checkpoints/final_motion_rnn.pt`: GRU 64, teacher forcing, seed 42; ver
 `RELATORY_PART2.md` §6). **Detecções:** SDP congelado, mesma regra de associação das Partes 1 a 3.
 **Sem as imagens do MOT17** (só anotações): as figuras desenham as caixas sobre fundo vazio.
@@ -26,6 +29,9 @@ recebe as próprias previsões, que é o que acontece numa oclusão).
   caminho previsão → próxima entrada transforma o estado em algo que se integra (um erro de velocidade em
   k passos atrás vira erro de posição proporcional a k), então o efeito de um erro cedo no buraco **aumenta**. É
   uma hipótese de mecanismo, não testada; o que está medido é o crescimento. Ele não significa "memória útil".
+  (A queda da curva às cegas depois de k ≈ 40 é efeito de borda: esses estados são de antes do início do buraco,
+  nos 8 quadros de contexto observados.) O cálculo foi conferido contra diferenças finitas em dupla precisão
+  (mesmos valores até 6 dígitos, nos dois modos).
 
 ## 2. Horizonte empírico (`parte4_sobrevivencia.png`, `parte4_sobrevivencia.csv`)
 **Experimento controlado.** Em cada vídeo (7, treino e validação juntos) escolho uma identidade com detecção em
@@ -42,10 +48,15 @@ Mesmas tentativas para os três métodos.
 | **RNN final** | 0,99 | **0,91** | **0,76** | **0,62** | **0,51** | 0,43 | 0,32 | 0,23 |
 
 (IC 95% de Wilson de ±0,05 a ±0,06 nos pontos da RNN em N de 10 a 30.) **N50** (N em que metade volta com o
-mesmo id): **RNN 21**, caixa parada 16, velocidade constante 11. Acima de ~40 quadros a RNN e a caixa parada
+mesmo id, `parte4_n50_bootstrap.csv`): **RNN 20,9 [18,6; 24,1]**, caixa parada 15,8 [13,3; 18,5], velocidade
+constante 11,4 [10,0; 12,4] (IC 95% por bootstrap das tentativas). A vantagem da RNN é real mas moderada: +5,2
+quadros sobre a caixa parada [+1,3; +8,9] e +9,6 sobre a velocidade constante [+7,0; +12,8]. Os intervalos cobrem
+só a amostragem das oclusões (tentativas do mesmo vídeo são correlacionadas, então são otimistas) e não a
+variação entre seeds de treino. Acima de ~40 quadros a RNN e a caixa parada
 são indistinguíveis (a velocidade constante colapsa: extrapola em linha reta por tempo demais). Quando falha,
 a RNN quase sempre **renasce com id novo** (N = 20: 43% `reborn`, 5% `swapped`): o modo de falha de oclusão
-longa é **fragmentação**, não roubo de identidade.
+longa é **fragmentação**, não roubo de identidade. (`swapped` só conta ids de tracks observadas no quadro
+anterior à oclusão; uma track vizinha que estivesse esperando conta como `reborn`, então os 5% são um piso.)
 
 **Comparação com o dataset** (`parte4_horizonte_empirico.json`). Dois jeitos de medir a duração das oclusões:
 - *buracos de detecção*: quadros seguidos, dentro da vida de uma identidade, sem nenhuma detecção do SDP com
@@ -84,7 +95,8 @@ treino (0,8% dos passos passam de 0,3 larguras/quadro; p99 = 0,28) e caixas com 
 encolhe a velocidade nessa cauda, e a câmera móvel é a fonte do movimento, que o modelo não vê.
 
 **Falha 3 — troca entre duas pessoas** (09, GT 14, 6 quadros, T26 → T23, que era de outra identidade, GT 6;
-`…troca_entre_pessoas.png`). Aqui a **recorrência acertou**: o IoU previsão × GT é 0,47 no fim (> 0,3). Mas há
+`…troca_entre_pessoas.png`). Aqui a **recorrência ainda estava dentro do portão**: o IoU previsão × GT é 0,47 no 1º quadro depois do buraco
+(> 0,3), embora já caindo (0,17 três quadros depois). Mas há
 três pessoas lado a lado com caixas quase sobrepostas (105×257 px) e a associação por IoU, gulosa, deu a
 detecção à track vizinha (T23), cuja caixa tinha IoU maior. *Diagnóstico:* **não é um problema de memória do
 estado**; a geometria sozinha não distingue pessoas sobrepostas. É o caso para o qual a Trilha B (aparência) foi
@@ -107,11 +119,14 @@ pelo IDF1 médio de **treino** entre 1,0 / 0,95 / 0,9 / 0,8 / 0,7.
 | 0,8 | 0,607 | 0,395 | 0,165 | 21,7 | 0,605 | 0,566 |
 | 0,7 | 0,583 | 0,371 | 0,151 | 21,6 | 0,608 | 0,565 |
 
-**Não funcionou.** (i) refutada: o N50 **diminui** (22,8 → 21,6) e o IoU às cegas na validação cai de k = 5 a
-k = 20; só em k = 30 há um ganho pequeno (0,150 → 0,165 com 0,8) e em k = 20 do treino +0,01. (ii) confirmada
-(k = 5 val: 0,651 → 0,583). (iii) confirmada: o IDF1 varia ±0,003 no treino e cai 0,01 na validação com 0,8 e 0,7.
-A regra registrada escolheria 0,7 (IDF1 de treino 0,608 contra 0,602, uma diferença de ruído), que é pior na
-validação e no N50; **não adotei a correção**.
+**Não funcionou.** (i) **não confirmada**: nenhum fator aumenta o N50 (1,0: 22,8; os demais, 21,6 a 22,3) e o IoU
+às cegas na validação **cai** de k = 5 a k = 20 com todo fator < 1; só em k = 30 há um ganho pequeno (0,150 → 0,165
+com 0,8) e em k = 20 do treino +0,01. Ressalva: as diferenças de N50 de ~1 quadro **estão dentro do ruído** (o IC 95%
+do N50 é de ≈ ±2,5, §2; e o mesmo modelo sem correção dá 20,9 na §2 e 22,8 aqui, porque esta tabela usa outra grade
+de N e outras tentativas). Por isso a evidência contra a correção é o IoU às cegas e a ausência de ganho no N50, não
+uma "queda" do N50. (ii) confirmada (k = 5 val: 0,651 → 0,583). (iii) confirmada: o IDF1 varia ±0,003 no treino e
+cai 0,01 na validação com 0,8 e 0,7. A regra registrada escolheria 0,7 (IDF1 de treino 0,608 contra 0,602, uma
+diferença de ruído), que é pior na validação e não ganha em N50; **não adotei a correção**.
 
 **O que isso revela sobre o diagnóstico.** A rede **já encolhe** o movimento às cegas (`parte4_extrapolacao.csv`):
 regressão do deslocamento previsto sobre o verdadeiro dá inclinação 0,63 / 0,52 / 0,36 (treino, k = 5 / 10 / 20)
@@ -119,9 +134,10 @@ e 0,79 / 0,71 / 0,54 (validação), com correlação de 0,95 na validação. Ist
 da falha 1 (sentido errado) é uma cauda (4% a 15% dos casos em que a pessoa anda, na validação; 13% a 26% no treino), não o comportamento típico.
 O diagnóstico partiu de um caso e da curva de gradiente, mas "o estado exagera a velocidade" não descreve o
 modelo: amortecer encolhe ainda mais o que já está encolhido. **Acompanhamento exploratório, pós-hoc** (escolhido
-depois de ver a inclinação < 1, portanto fora da hipótese registrada): amplificar (fatores 1,15 e 1,3) também não
-ajuda: com 1,15 o N50 vai a 20,6 e o IDF1 não muda (0,607 / 0,577); com 1,3 o N50 cai a 17,7. O fator 1,0 já
-está no ótimo local para N50 e IoU às cegas. O que sobra da falha 1 é um problema de **estimar a velocidade no
+depois de ver a inclinação < 1, portanto fora da hipótese registrada): amplificar (fatores 1,15 e 1,3) dá um
+resultado **misto**, não nulo: com 1,15 o IoU às cegas na validação sobe um pouco em k = 5 e 10 (0,651 → 0,664 e
+0,453 → 0,464) mas cai em k = 30 (0,150 → 0,121), o N50 vai a 20,6 (dentro do ruído) e o IDF1 não muda (0,607 / 0,577);
+com 1,3 tudo piora (N50 17,7). Nenhum fator melhora o rastreamento, então o fator 1,0 é mantido. O que sobra da falha 1 é um problema de **estimar a velocidade no
 início do buraco a partir de caixas ruidosas**, que escalar a extrapolação não resolve; as correções que o
 atacariam (suavizar a velocidade de entrada, ou o portão por incerteza do opcional da Parte 2) ficaram como
 próximo passo, **não testadas**.

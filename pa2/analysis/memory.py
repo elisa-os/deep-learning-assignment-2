@@ -202,6 +202,42 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (c - h, c + h)
 
 
+def n50_curve(Ns, kept) -> float:
+    """Menor N em que a fração que mantém o id cai abaixo de 0,5 (interpolação linear entre os N medidos)."""
+    x, y = np.asarray(Ns, float), np.asarray(kept, float)
+    for i in range(1, len(x)):
+        if y[i] < 0.5 <= y[i - 1]:
+            return float(x[i - 1] + (y[i - 1] - 0.5) / (y[i - 1] - y[i]) * (x[i] - x[i - 1]))
+    return float(x[-1]) if y[-1] >= 0.5 else float(x[0])
+
+
+def bootstrap_n50(trials: pd.DataFrame, n_boot: int = 2000, seed: int = 0) -> pd.DataFrame:
+    """N50 por método com IC95% por bootstrap das TENTATIVAS (cada N reamostrado à parte), mais a
+    diferença RNN − caixa parada e RNN − velocidade constante.
+
+    O IC cobre só a variação de amostragem das oclusões injetadas (≈330 por N). Tentativas do mesmo
+    vídeo são correlacionadas, então o intervalo é otimista; não cobre variação entre seeds de treino.
+    Linhas: ``method``/``contraste``, ``n50``, ``ci_lo``, ``ci_hi``, ``p_gt_0`` (só nos contrastes).
+    """
+    rng = np.random.default_rng(seed)
+    Ns = sorted(trials.N.unique())
+    kept = {(m, n): (trials[(trials.method == m) & (trials.N == n)].outcome == "kept").to_numpy()
+            for m in trials.method.unique() for n in Ns}
+    boots = {m: np.array([n50_curve(Ns, [rng.choice(kept[(m, n)], len(kept[(m, n)])).mean() for n in Ns])
+                          for _ in range(n_boot)]) for m in trials.method.unique()}
+    rows = []
+    for m, b in boots.items():
+        rows.append({"metodo": m, "n50": n50_curve(Ns, [kept[(m, n)].mean() for n in Ns]),
+                     "ci_lo": float(np.percentile(b, 2.5)), "ci_hi": float(np.percentile(b, 97.5)),
+                     "p_gt_0": np.nan})
+    for a, b_ in (("rnn", "static"), ("rnn", "const_vel")):
+        if a in boots and b_ in boots:
+            d = boots[a] - boots[b_]
+            rows.append({"metodo": f"{a} - {b_}", "n50": float(d.mean()), "ci_lo": float(np.percentile(d, 2.5)),
+                         "ci_hi": float(np.percentile(d, 97.5)), "p_gt_0": float((d > 0).mean())})
+    return pd.DataFrame(rows)
+
+
 def survival_table(trials: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for (m, N), g in trials.groupby(["method", "N"]):

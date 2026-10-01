@@ -185,3 +185,17 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
 - **Validação / Decisões Humanas:**
   - A hipótese da correção (amortecer a extrapolação às cegas) foi escrita antes de rodar. Ela **não funcionou**; a IA mediu por quê (a rede já encolhe o movimento: inclinação 0,5–0,8) e o relatório registra que o diagnóstico partiu de um caso extremo. Os fatores > 1 foram testados depois, como exploratório, e estão marcados como pós-hoc.
   - Revisamos o relatório: corrigimos uma porcentagem (80% → 90%), um mecanismo que não foi verificado (a caixa "deslocada" na falha 1) e um trecho truncado.
+
+---
+
+## Episódio 12: Revisão cruzada da Parte 4 e do repositório
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Antes de seguir, pedimos uma revisão independente da Parte 4 (feita por outra pessoa da dupla) e da coesão do repositório.
+- **Como a IA auxiliou:**
+  - Conferiu o cálculo de ∂L/∂h contra diferenças finitas em dupla precisão (código independente), reproduziu a etapa A (CSV idêntico) e recomputou os números do relatório a partir dos CSVs. A etapa B não foi reproduzida do zero (> 1 h) e isso ficou registrado.
+  - Achou: uma refutação por N50 dentro do ruído (o mesmo modelo dá 20,9 e 22,8 em duas tabelas; IC 95% ≈ ±2,5), um resultado exploratório descrito como nulo quando era misto, uma frase errada sobre a seed 42 e documentação defasada no README.
+- **Validação / Decisões Humanas:**
+  - O bootstrap do N50 foi incorporado ao pipeline (`bootstrap_n50`, com teste), para o relatório não citar um número que o repositório não produz. As conclusões não mudaram (a correção continua não funcionando e a RNN continua melhor que a caixa parada), mas o critério que as sustenta mudou.

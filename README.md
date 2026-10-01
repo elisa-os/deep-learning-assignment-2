@@ -115,7 +115,7 @@ uv run pa2 0 --eval-only --checkpoint outputs/checkpoints/parte0_baseline.pt
 Além do README.md, o repositório entrega:
 
 - **`AI_LOG.md`** — log de uso de IA neste assignment, conforme exigido pela política de uso de IA do enunciado (seção 5 do PA2.pdf). Descreve episódios em que IA foi usada e como os problemas foram resolvidos.
-- **`pa2/inferencia.ipynb`** — notebook de inferência: recebe o caminho de uma sequência MOT17 qualquer e devolve o vídeo com as identidades coloridas de forma consistente e a contagem de objetos únicos, rodando sem retreinar. Usa o checkpoint do modelo final (`outputs/checkpoints/final_motion_rnn.pt`).
+- **`pa2/inferencia.ipynb`** (**ainda não existe**) — notebook de inferência: recebe o caminho de uma sequência MOT17 qualquer e devolve o vídeo com as identidades coloridas de forma consistente e a contagem de objetos únicos, rodando sem retreinar. Usa o checkpoint do modelo final (`outputs/checkpoints/final_motion_rnn.pt`).
 - **`outputs/checkpoints/final_motion_rnn.pt`** — pesos do modelo temporal final (GRU 64, teacher forcing, seed 42; decisão em `RELATORY_PART2.md` §6). É o artefato que o `inferencia.ipynb` e o comando de avaliação usam. O modelo inicial da Parte 2 continua em `parte2_motion_rnn.pt`.
 
 ---
@@ -222,69 +222,54 @@ Escolhemos o teste de **queda de taxa de quadros**: avaliamos com o vídeo subam
 deep-learning-assignment-2/
 ├── pyproject.toml              # Dependências e comandos uv
 ├── uv.lock                     # Lockfile determinístico
-├── .gitignore                  # Ignora outputs/, data/, cache, etc.
+├── .gitignore                  # Ignora .venv, caches e notebooks (data/ e outputs/ estão versionados)
 ├── README.md                   # Este arquivo
-├── PLANO_DE_EXECUCAO.md        # Plano de execução detalhado
-├── RELATORY_PART0.md           # Relatório de execução da Parte 0
+├── PLANO_DE_EXECUCAO.md        # Plano de execução, decisões e backlog
+├── RELATORY_PART0.md ... RELATORY_PART4.md   # Relatório de cada parte: desenho, resultados, limitações
 ├── PA2.md / PA2.pdf            # Enunciado (transcrição em .md e original)
 ├── AI_LOG.md                   # Log de uso de IA (entregável)
+├── CLAUDE.md                   # Instruções para agentes (aponta para PA2.md e os relatórios)
 ├── metrics.py                  # Entregável: re-exporta as métricas de pa2/metrics/tracking.py
-├── tests/                      # pytest: métricas, gerador, simulador de detector
-├── data/MOT17/                 # Dados do MOT17 (ignorado pelo git)
+├── tests/                      # pytest: métricas, gerador, detecção/NMS, rastreadores, RNN, ablação, Parte 4
+├── data/MOT17/                 # Anotações do MOT17 (train/ com GT e det.txt; test/ só det.txt)
+├── outputs/                    # Resultados versionados (ver "Onde estão as saídas" abaixo)
 │
 └── pa2/
-    ├── __init__.py             # Pacote principal
-    ├── main.py                 # Ponto de entrada: CLI por parte
-    ├── config.py               # Dataclasses de configuração
-    ├── config.yaml             # Configuração por parte (parte0..parte5)
-    ├── part0.py                # Pipeline da Parte 0 (testes sintéticos)
+    ├── main.py                 # Ponto de entrada: `uv run pa2 <parte>`
+    ├── config.py / config.yaml # Dataclasses e configuração por parte (parte0..parte4)
+    ├── part0.py                # Parte 0: testes sintéticos
+    ├── part1.py                # Parte 1: baseline por quadro (detector público, associação por IoU)
+    ├── part2.py                # Parte 2: RNN como modelo de movimento (Trilha A)
+    ├── ablation.py             # Parte 3: ablação do regime de treino (Eixo 2)
+    ├── part4.py                # Parte 4: horizonte de memória, galeria de falhas, correção
     │
-    ├── utils/
-    │   ├── __init__.py
-    │   ├── seed.py             # set_seed() (copiado do PA1)
-    │   ├── device.py           # get_device() (copiado do PA1)
-    │   ├── export.py           # PerSequenceMetricsWriter (adaptado do PA1)
-    │   └── visualize.py        # Gráficos de tracking (adaptado do PA1)
-    │
+    ├── utils/                  # seed, device, exportação de métricas, gráficos (herdados do PA1)
+    ├── synthetic_video/        # Gerador de vídeos sintéticos + simulador de detector (Parte 0)
     ├── metrics/
-    │   ├── __init__.py
-    │   ├── tracking.py          # IDF1, ID switches, fragmentações (implementação própria)
-    │   └── cases.py             # Casos (a)(b)(c) feitos à mão, com valores esperados
-    │
-    ├── synthetic_video/
-    │   ├── __init__.py
-    │   └── synthetic.py          # Gerador + simulador de detector (implementação própria)
-    │
+    │   ├── tracking.py         # IDF1, ID switches, fragmentações (implementação própria)
+    │   ├── detection.py        # AP/mAP por quadro e remoção de detecções sobre distratores
+    │   ├── reconnection.py     # Desfecho da identidade depois de um buraco de rastreamento
+    │   └── cases.py            # Casos (a)(b)(c) feitos à mão, com valores esperados
     ├── association/
-    │   ├── __init__.py
-    │   ├── matching.py           # GreedyMatcher, HungarianMatcher (Parte 0)
-    │   └── tracker.py            # IoUTracker: baseline ingênuo da Parte 1
-    │
-    ├── mot17/                    # Loader MOT17 + avaliação com distratores
-    │   ├── __init__.py
-    │   ├── loader.py
-    │   └── evaluate.py
-    │
-    ├── detection/                # NMS próprio + detector torchvision (inferência)
-    │   ├── nms.py
-    │   └── torchvision_person.py
-    │
-    ├── part1.py                  # Pipeline da Parte 1
-    │
-    ├── models/                   # (A implementar) RNN de movimento
-    │   ├── __init__.py
-    │   └── motion_rnn.py
-    │
-    ├── ablation.py               # (A implementar) Runner de ablações
-    ├── part1.py                  # (A implementar) Pipeline da Parte 1
-    ├── part2.py                  # (A implementar) Pipeline da Parte 2
-    ├── part4.py                  # Pipeline da Parte 4 (usa pa2/analysis/)
-    ├── part5.py                  # (A implementar) Pipeline da Parte 5
-    ├── stress/                   # (A implementar) Testes de estresse
-    │   ├── __init__.py
-    │   └── stress_test.py
-    └── inferencia.ipynb          # (A implementar) Notebook de inferência
+    │   ├── matching.py         # GreedyMatcher (usado só na Parte 0; HungarianMatcher não é usado)
+    │   ├── tracker.py          # IoUTracker: baseline ingênuo das Partes 1+
+    │   ├── motion.py           # Modelos de movimento: caixa parada, velocidade constante, RNN
+    │   └── motion_tracker.py   # MotionTracker: mesma gestão de tracks, compara com a caixa prevista
+    ├── mot17/                  # loader.py, evaluate.py (convenções do benchmark), trajectories.py (janelas de treino)
+    ├── detection/              # nms.py (próprio) e torchvision_person.py (detector pré-treinado, inferência)
+    ├── models/motion_rnn.py    # MotionRNN (RNN/GRU/LSTM), treino, validação, checkpoints
+    └── analysis/               # Parte 4: memory.py (gradiente, oclusões injetadas), gallery.py, runner.py
 ```
+
+**Ainda não existem (pendentes):** `pa2/part5.py` (+ `pa2/stress/`) e `pa2/inferencia.ipynb`.
+
+**Onde estão as saídas (`outputs/`):**
+- `parte0_*`, `parte1_*`, `metrics/`: Partes 0 e 1.
+- `parte2_*` e `checkpoints/parte2_motion_rnn.pt`: Parte 2 com o **modelo inicial** (treino com buracos simulados).
+- `checkpoints/final_motion_rnn.pt`: **modelo final** (teacher forcing, seed 42; `RELATORY_PART2.md` §6).
+- `final/`: reavaliação da Parte 2 com o modelo final (mesmos arquivos de `parte2_*`).
+- `parte3_ablation/`: ablação (resumo em CSV/PNG; `runs/` brutos; `checkpoints/` dos 21 treinos).
+- `final_parte4/`: Parte 4 (modelo final).
 
 ---
 
@@ -335,11 +320,11 @@ parte0:
 |-------|--------|
 | Parte 0 — Testes sintéticos | **Concluída e revisada** — gerador com oclusão por profundidade, simulador testado, IDF1/ID switches/fragmentações validados nos 3 casos à mão (`uv run pytest`), baseline fácil com IDF1 ≈ 1 e varredura dos botões. |
 | Parte 1 — Baseline por quadro | **Feita com detecções públicas** (SDP) — falta rodar o detector torchvision (imagens + GPU) |
-| Parte 2 — Trilha A (RNN movimento) | A implementar |
+| Parte 2 — Trilha A (RNN movimento) | **Feita** — GRU de movimento + análise de reconexão (`RELATORY_PART2.md`); opcional pendente: incerteza/portão adaptativo |
 | Parte 3 — Ablação (Eixo 2) | **Feita** — 7 regimes × 3 seeds, resultados em `RELATORY_PART3.md` |
-| Parte 4 — Galeria de falhas + horizonte de memória | Feita (ver `RELATORY_PART4.md`) |
-| Parte 5 — Teste de estresse (queda de taxa de quadros) | A implementar |
-| Entregáveis (README, AI_LOG, inferencia.ipynb, checkpoints) | A completar |
+| Parte 4 — Galeria de falhas + horizonte de memória | **Feita** — gradiente (conferido por diferenças finitas), oclusões injetadas, 3 falhas, correção negativa (`RELATORY_PART4.md`) |
+| Parte 5 — Teste de estresse (queda de taxa de quadros) | **A implementar** |
+| Entregáveis | README, `AI_LOG.md`, `metrics.py` e checkpoint (`outputs/checkpoints/final_motion_rnn.pt`) prontos; **faltam** `inferencia.ipynb` e a Parte 5 |
 
 ---
 

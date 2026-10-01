@@ -20,8 +20,8 @@ import numpy as np
 import pandas as pd
 import torch
 
-from pa2.analysis.memory import (blind_displacement_regression, detection_gap_runs, gradient_horizon, horizon_summary,
-                                 survival_experiment, survival_table, visibility_runs)
+from pa2.analysis.memory import (blind_displacement_regression, bootstrap_n50, detection_gap_runs, gradient_horizon,
+                                 horizon_summary, n50_curve, survival_experiment, survival_table, visibility_runs)
 from pa2.analysis.gallery import (draw_failure, episode_measures, gt_boxes_by_frame, pick_failures)
 from pa2.analysis.runner import match_gt_to_dets, records_from_assign, run_trace, sorted_dets
 from pa2.metrics.reconnection import gap_episodes
@@ -76,13 +76,9 @@ def _plot_gradient(curves: dict, T: int, path: Path) -> None:
 
 
 def _n50(tab: pd.DataFrame, method: str) -> float:
-    """Menor N em que a fração que mantém o id cai abaixo de 0,5 (interpolação linear)."""
+    """N50 do método a partir da tabela de sobrevivência (ver ``analysis.memory.n50_curve``)."""
     d = tab[tab.method == method].sort_values("N")
-    x, y = d.N.to_numpy(float), d.kept.to_numpy(float)
-    for i in range(1, len(x)):
-        if y[i] < 0.5 <= y[i - 1]:
-            return float(x[i - 1] + (y[i - 1] - 0.5) / (y[i - 1] - y[i]) * (x[i] - x[i - 1]))
-    return float(x[-1]) if y[-1] >= 0.5 else float(x[0])
+    return n50_curve(d.N, d.kept)
 
 
 def _plot_survival(tab: pd.DataFrame, gaps: pd.DataFrame, vis: pd.DataFrame, path: Path,
@@ -172,6 +168,9 @@ def stage_b_survival(root, videos, detector, min_conf, model, out: Path, reps: i
     print(f"\n  N50 (quadros em que metade das identidades ainda volta com o mesmo id): {n50}")
     print(f"  buracos de detecção reais: n={len(L)}, mediana {np.median(L):.0f}, p90 {np.percentile(L, 90):.0f}, "
           f"{100 * (L > n50['rnn']).mean():.1f}% maiores que N50 da RNN, {100 * (L > 30).mean():.1f}% maiores que 30")
+    boot = bootstrap_n50(trials)
+    boot.to_csv(out / "parte4_n50_bootstrap.csv", index=False)
+    print("\n  N50 com IC95% (bootstrap das tentativas; otimista, ver docstring):\n" + boot.round(2).to_string(index=False))
     _plot_survival(tab, gaps, vis, out / "parte4_sobrevivencia.png", SURVIVAL_ASSOC_MAX_AGE)
     with open(out / "parte4_horizonte_empirico.json", "w") as f:
         json.dump(summary, f, indent=2)
@@ -353,4 +352,4 @@ def run_parte4(cfg: Config, device: torch.device) -> None:
     stage_c_gallery(root, val, detector, min_conf, model, assoc, out)
     stage_d_correction(root, train, val, detector, min_conf, model, assoc, sigma, out)
     print(f"\n  Resultados em: {out}")
-    print("\n[✓] Parte 4 (etapas A e B) concluída.")
+    print("\n[✓] Parte 4 (etapas A a D) concluída.")
