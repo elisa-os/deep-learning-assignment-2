@@ -55,36 +55,47 @@ parte1:
     eval_iou: 0.5
 
 # ── Parte 2 — Trilha A: RNN como modelo de movimento ─────
+# Detecções congeladas (as mesmas da Parte 1: SDP, score >= limiar da Parte 1).
+# Treino nas trajetórias do GT dos vídeos de treino; a validação escolhe a melhor época.
 parte2:
   synthetic: false
   data_dir: data/MOT17
   sequence_split:
-    train: []
+    train: []          # vazio = split padrão por vídeo (pa2/mot17/loader.py)
     val: []
     test: []
-  detector_source: "FRCNN"
+  detector_source: "SDP"
   use_torchvision_detector: false
-  batch_size: 1
+  batch_size: 64
   num_workers: 0
   epochs: 30
-  lr: 1.0e-3
+  steps_per_epoch: 100
+  lr: 2.0e-3
   checkpoint: null
   eval_only: false
+  gradient_clipping: true
+  grad_clip_value: 1.0
   rnn:
-    type: "LSTM"
-    input_size: 5
+    type: "GRU"          # RNN | GRU | LSTM
+    input_size: 10
     hidden_size: 64
     num_layers: 1
     dropout: 0.0
     use_delta_t: true
     predict_uncertainty: false
-  association:
+  association:           # a mesma regra da Parte 1: só muda o modelo de movimento
     method: "greedy"
     iou_threshold: 0.3
     max_age: 30
     min_hits: 3
+    min_conf: null       # null = limiar de score da Parte 1 (maximiza o F1 no treino)
+    eval_iou: 0.5
   window_T: 32
   teacher_forcing_ratio: 1.0
+  gap_prob: 0.5
+  max_gap: 20
+  obs_noise: [0.06, 0.025, 0.08, 0.045]
+  train_strides: [1]
 
 # ── Parte 3 — Ablação: Eixo 2 (regime de treino) ─────────
 parte3:
@@ -94,14 +105,14 @@ parte3:
     train: []
     val: []
     test: []
-  detector_source: "FRCNN"
+  detector_source: "SDP"
   batch_size: 1
   num_workers: 0
   epochs: 30
   lr: 1.0e-3
   rnn:
     type: "LSTM"
-    input_size: 5
+    input_size: 10
     hidden_size: 64
     num_layers: 1
     dropout: 0.0

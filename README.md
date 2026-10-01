@@ -98,10 +98,11 @@ Avalia o modelo já treinado sem retreinar, usando o checkpoint salvo:
 uv run pa2 2 --eval-only --checkpoint outputs/checkpoints/parte2_motion_rnn.pt
 ```
 
-Isso carrega os pesos, roda a inferência nas sequências de validação e teste, e gera:
-- `outputs/metrics/parte2_tracking_results.json` — métricas de tracking (IDF1, ID switches, fragmentações)
-- `outputs/metrics/parte2_per_sequence_tracking_metrics.csv` — métricas por sequência
-- `outputs/parte2_resultados.png` — curvas de treino + gráfico IDF1 por sequência
+Isso carrega os pesos e roda, nos 7 vídeos com GT (treino e validação), a comparação Parte 1 × velocidade constante × RNN e a análise de reconexão depois de buracos. Gera em `outputs/`:
+- `parte2_summary.json` — configuração e médias por split
+- `parte2_per_sequence.csv` / `parte2_per_sequence_tuned.csv` — métricas por vídeo (IDF1, ID switches, fragmentações, contagem)
+- `parte2_comparacao.png` — Parte 1 × velocidade constante × RNN, vídeos ordenados por densidade
+- `parte2_reconnection.csv`, `parte2_reconexao.png` — o que acontece com a identidade depois de um buraco
 
 Para avaliar apenas uma parte específica com o checkpoint dela:
 
@@ -167,15 +168,10 @@ Detecções congeladas + associação ingênua por IoU; nada é treinado. Duas f
 
 Escolha da dupla: **Trilha A** (RNN como modelo de movimento). A fonte de detecções fica congelada a partir daqui, o que muda é o que acontece entre os quadros. Um estado recorrente por track. A cada quadro, o LSTM/GRU recebe a última observação (caixa, opcionalmente confiança e Δt) e prevê a caixa do quadro seguinte; a associação usa IoU entre caixa prevista e caixa observada. Sob oclusão, o estado roda para frente sem observação, e a track sobrevive ou não. Perda L1/smooth-L1 sobre a caixa, treinada em trajetórias do ground truth.
 
-- **Onde:** `pa2/models/motion_rnn.py` (MotionRNN, MotionRNNPredictor), `pa2/part2.py` (pipeline da Parte 2)
-- **Como reproduzir:** `uv run pa2 2` (requer MOT17 baixado e configurado em `pa2/config.yaml` → `parte2.sequence_split`)
-- **Saídas:**
-  - `outputs/checkpoints/parte2_motion_rnn.pt` — checkpoint do modelo treinado
-  - `outputs/metrics/parte2_tracking_results.json` — métricas de tracking
-  - `outputs/metrics/parte2_per_sequence_tracking_metrics.csv` — métricas por sequência
-  - `outputs/parte2_resultados.png` — curvas de treino + gráfico IDF1 por sequência
-  - `outputs/parte2_qualitativo.png` — trajetórias coloridas por identidade
-- **Status:** A implementar
+- **Onde:** `pa2/models/motion_rnn.py` (modelo + treino), `pa2/association/motion.py` (modelos de movimento intercambiáveis: caixa parada, velocidade constante, RNN), `pa2/association/motion_tracker.py` (mesma gestão de tracks da Parte 1, mas comparando com a caixa *prevista*), `pa2/mot17/trajectories.py` (trajetórias do GT → janelas de treino), `pa2/part2.py` (pipeline)
+- **Como reproduzir:** `uv run pa2 2` (≈6 min em CPU, só com as anotações de `data/MOT17/`). `uv run pa2 2 --eval-only` reavalia o checkpoint sem treinar. Relatório: `RELATORY_PART2.md`.
+- **Saídas** (em `outputs/`): `checkpoints/parte2_motion_rnn.pt`, `parte2_treino.png`, `parte2_gap_rollout.png` (IoU após k quadros sem observação), `parte2_comparacao.png` (Parte 1 × velocidade constante × RNN, mesmas sequências), `parte2_per_sequence*.csv`, `parte2_summary.json`
+- **Status:** Implementado e avaliado nas detecções públicas (SDP), com análise de reconexão depois de buracos e resposta sobre janelas em `RELATORY_PART2.md`. Pendente: incerteza/portão adaptativo (opcional).
 
 ### Parte 3 — Ablação (Eixo 2: regime de treino)
 

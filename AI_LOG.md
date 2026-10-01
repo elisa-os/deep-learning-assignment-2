@@ -127,3 +127,18 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
 - **Validação / Decisões Humanas:**
   - Testes que usam o GT real: GT como predição ⇒ IDF1 = 1; GT como detecções ⇒ AP50 = 1. Dois testes foram reescritos por serem fracos (asserção tautológica).
   - A escolha do detector (SDP) e da regra de associação seguem regras fixas no código e usam só os vídeos de treino; o detector torchvision continua pendente.
+
+---
+
+## Episódio 8: Parte 2 (Trilha A, RNN de movimento)
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Com só as anotações do MOT17 disponíveis, a Trilha A era a única viável (a B precisa dos recortes das imagens).
+- **Como a IA auxiliou:**
+  - Propôs a parametrização invariante à escala, o treino com ruído de detector medido (SDP × GT) e buracos de observação simulados, e escreveu `motion_rnn.py`, `motion.py`, `motion_tracker.py`, `part2.py` e os testes.
+  - Fez o rastreador novo herdar o `IoUTracker` e verificou que, com movimento "parado", ele reproduz a Parte 1 exatamente (teste no vídeo 09 real).
+- **Validação / Decisões Humanas:**
+  - Os resultados da RNN foram comparados com a Parte 1 e com um baseline de velocidade constante nas mesmas sequências; a velocidade constante é um baseline forte e o relatório diz isso.
+  - Pedimos uma análise do "em que aspecto a RNN melhora": a IA escreveu `metrics/reconnection.py` (desfecho de cada buraco de rastreamento) e confrontou o relatório com os números. A primeira versão do texto atribuía o ganho a "a track sobrevive à oclusão"; a análise mostrou que o ganho está em buracos curtos e na câmera móvel, e que acima de 30 quadros não há ganho. O relatório foi corrigido.

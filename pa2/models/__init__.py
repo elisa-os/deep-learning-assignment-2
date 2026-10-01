@@ -2,12 +2,10 @@
 
 from .motion_rnn import (
     MotionRNN,
-    MotionRNNPredictor,
+    TrainSettings,
+    load_checkpoint,
+    save_checkpoint,
     train_motion_rnn,
 )
 
-__all__ = [
-    "MotionRNN",
-    "MotionRNNPredictor",
-    "train_motion_rnn",
-]
+__all__ = ["MotionRNN", "TrainSettings", "load_checkpoint", "save_checkpoint", "train_motion_rnn"]

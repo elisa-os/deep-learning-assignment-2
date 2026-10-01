@@ -47,7 +47,7 @@ class DataConfig:
 class ModelConfig:
     """Configuração do modelo (RNN de movimento, Trilha A)."""
     rnn_type: str = "LSTM"                # LSTM | GRU
-    input_size: int = 5                  # [cx, cy, w, h, conf]
+    input_size: int = 10                 # nº de features por passo (ver models/motion_rnn.py)
     hidden_size: int = 64
     num_layers: int = 1
     dropout: float = 0.0
@@ -70,7 +70,13 @@ class AssociationConfig:
 class RNNConfig:
     """Configuração específica da RNN (Parte 2+)."""
     window_T: int = 32                   # janela de BPTT truncado
-    teacher_forcing_ratio: float = 1.0  # 1.0 = teacher forcing puro
+    teacher_forcing_ratio: float = 1.0  # prob. de alimentar a observação (1.0 = teacher forcing puro)
+    gap_prob: float = 0.5                # prob. de uma janela de treino ter buracos de observação
+    max_gap: int = 20                    # duração máxima de um buraco simulado (quadros)
+    obs_noise: list[float] = field(default_factory=lambda: [0.06, 0.025, 0.08, 0.045])
+    # ruído nas observações do treino: desvio de [cx/w, cy/h, log w, log h] (medido SDP vs GT)
+    train_strides: list[int] = field(default_factory=lambda: [1])  # Δt de treino (quadros)
+    steps_per_epoch: int = 100
 
 
 @dataclass
@@ -170,7 +176,8 @@ def load_config(
         model_fields = {"rnn_type", "input_size", "hidden_size", "num_layers", "dropout",
                         "use_delta_t", "predict_uncertainty"}
         assoc_fields = {"method", "iou_threshold", "max_age", "min_hits", "min_conf", "eval_iou"}
-        rnn_fields = {"window_T", "teacher_forcing_ratio"}
+        rnn_fields = {"window_T", "teacher_forcing_ratio", "gap_prob", "max_gap", "obs_noise",
+                      "train_strides", "steps_per_epoch"}
         train_fields = {"epochs", "lr", "checkpoint", "eval_only", "gradient_clipping", "grad_clip_value"}
 
         # Seções aninhadas do YAML (association:, rnn:) valem como se fossem campos soltos.
