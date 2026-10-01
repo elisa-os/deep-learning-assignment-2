@@ -175,16 +175,16 @@ Escolha da dupla: **Trilha A** (RNN como modelo de movimento). A fonte de detec�
 
 ### Parte 3 — Ablação (Eixo 2: regime de treino)
 
-Escolhemos o **Eixo 2 — o regime de treino** (teacher forcing → scheduled sampling → free-running). Na inferência o modelo se alimenta das próprias previsões (e, sob oclusão, só delas); se ele nunca viu isso no treino, a distribuição muda debaixo dele. Medimos. Incluimos gradient clipping ligado/desligado e reportamos o que acontece sem ele. 3 seeds, média ± desvio.
+Escolhemos o **Eixo 2** (teacher forcing → scheduled sampling → free-running). Na inferência o modelo se alimenta das próprias previsões (e, sob oclusão, só delas); se nunca viu isso no treino, a distribuição muda debaixo dele. Medimos essa deriva e incluímos gradient clipping ligado/desligado. 3 seeds (42, 123, 456), média ± desvio amostral. O modelo é o da Parte 2 (GRU 64) e a detecção, a mesma (SDP congelado); só o regime de treino varia.
 
-- **Onde:** `pa2/ablation.py` (script automatizado que roda todas as configurações)
-- **Como reproduzir:** `uv run pa2 3`
-- **Saídas (em `outputs/parte3_ablation/`):**
-  - `outputs/parte3_ablation/checkpoints/` — checkpoints de cada configuração × seed
-  - `outputs/parte3_ablation/metrics/ablation_results.json` — resultados brutos de todas as configurações
-  - `outputs/parte3_ablation/metrics/ablation_summary.csv` — tabela agregada (μ ± σ) por configuração
-  - `outputs/parte3_ablation_idf1_comparison.png` — gráfico de barras: IDF1 por regime de treino
-- **Status:** A implementar
+7 configurações (21 treinos): `teacher_forcing`, `scheduled_sampling` (probabilidade de observação decai linearmente de 1 a 0), `free_running`, cada um com clipping ligado e desligado, mais `part2_recipe` (teacher forcing + buracos de observação simulados, a receita da Parte 2 re-treinada sob o mesmo protocolo). Os três regimes puros usam `gap_prob: 0` para isolar o efeito. Todos treinam as mesmas épocas e o checkpoint é o da **última** época (sem escolher a época pela validação).
+
+- **Onde:** `pa2/ablation.py` (runner, avaliação, agregação e figuras); `pa2/models/motion_rnn.py` (agenda de teacher forcing, estatísticas de gradiente, detecção de divergência, `eval_shift`); regimes em `pa2/config.yaml` → `parte3.ablation.regimes`
+- **Como reproduzir:** `uv run pa2 3` (≈25 min em CPU; retomável: pula o que já existe em `outputs/parte3_ablation/runs/`). Para dividir em processos: `uv run pa2 3 --seeds 42`, `--seeds 123`, `--seeds 456`, e depois `uv run pa2 3 --aggregate-only`. `--regimes nome1 nome2` roda só alguns regimes.
+- **O que mede:** deriva (IoU com observações × só com as próprias previsões), IoU após k quadros às cegas, rastreamento nos 7 vídeos (validação = 09 e 13 é o principal), reconexão depois de buracos, e estabilidade do treino (norma do gradiente, passos não finitos, divergência).
+- **Saídas** (em `outputs/parte3_ablation/`): `parte3_summary.csv` (média ± desvio por regime), `parte3_runs.csv` (por seed), `parte3_reconnection.csv`, `parte3_tracking.png`, `parte3_shift.png`, `parte3_blind_rollout.png`, `parte3_grad_norms.png`, `runs/*.json` (brutos), `checkpoints/`
+- **Relatório:** `RELATORY_PART3.md`
+- **Status:** Implementado e executado (21 treinos). Resumo: free-running é claramente pior; teacher forcing, scheduled sampling e a receita da Parte 2 não se distinguem no IDF1; sem clipping não há instabilidade neste setup. Detalhes e limitações em `RELATORY_PART3.md`.
 
 ### Parte 4 — Galeria de falhas e horizonte de memória
 
@@ -335,7 +335,7 @@ parte0:
 | Parte 0 — Testes sintéticos | **Concluída e revisada** — gerador com oclusão por profundidade, simulador testado, IDF1/ID switches/fragmentações validados nos 3 casos à mão (`uv run pytest`), baseline fácil com IDF1 ≈ 1 e varredura dos botões. |
 | Parte 1 — Baseline por quadro | **Feita com detecções públicas** (SDP) — falta rodar o detector torchvision (imagens + GPU) |
 | Parte 2 — Trilha A (RNN movimento) | A implementar |
-| Parte 3 — Ablação (Eixo 2) | A implementar |
+| Parte 3 — Ablação (Eixo 2) | **Feita** — 7 regimes × 3 seeds, resultados em `RELATORY_PART3.md` |
 | Parte 4 — Galeria de falhas + horizonte de memória | A implementar |
 | Parte 5 — Teste de estresse (queda de taxa de quadros) | A implementar |
 | Entregáveis (README, AI_LOG, inferencia.ipynb, checkpoints) | A completar |

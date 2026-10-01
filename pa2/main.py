@@ -60,6 +60,12 @@ def main() -> None:
         default=None,
         help="Caminho para checkpoint para avaliação",
     )
+    parser.add_argument("--seeds", type=int, nargs="+", default=None,
+                        help="(parte 3) roda só estas seeds; vários processos podem dividir as seeds")
+    parser.add_argument("--regimes", type=str, nargs="+", default=None,
+                        help="(parte 3) roda só estes regimes (nomes do config.yaml)")
+    parser.add_argument("--aggregate-only", action="store_true",
+                        help="(parte 3) só agrega os runs que já existem")
     args = parser.parse_args()
 
     parte = args.parte
@@ -105,7 +111,8 @@ def main() -> None:
         run_parte2(cfg, device)
     elif parte_int == 3:
         from pa2.ablation import run_ablation
-        run_ablation(cfg, device)
+        run_ablation(cfg, device, only_seeds=args.seeds, only_regimes=args.regimes,
+                     aggregate_only=args.aggregate_only)
     elif parte_int == 4:
         from pa2.part4 import run_parte4
         run_parte4(cfg, device)

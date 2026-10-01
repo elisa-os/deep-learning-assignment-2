@@ -142,3 +142,19 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
 - **Validação / Decisões Humanas:**
   - Os resultados da RNN foram comparados com a Parte 1 e com um baseline de velocidade constante nas mesmas sequências; a velocidade constante é um baseline forte e o relatório diz isso.
   - Pedimos uma análise do "em que aspecto a RNN melhora": a IA escreveu `metrics/reconnection.py` (desfecho de cada buraco de rastreamento) e confrontou o relatório com os números. A primeira versão do texto atribuía o ganho a "a track sobrevive à oclusão"; a análise mostrou que o ganho está em buracos curtos e na câmera móvel, e que acima de 30 quadros não há ganho. O relatório foi corrigido.
+
+---
+
+## Episódio 9: Parte 3 (Ablação, Eixo 2: regime de treino)
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Fazer a ablação completa (7 configurações × 3 seeds) sem abrir mão de nenhuma resposta do enunciado; as hipóteses foram escritas no plano antes de rodar.
+- **Como a IA auxiliou:**
+  - Antes de implementar, leu o código de treino da Parte 2 e achou armadilhas que invalidariam a comparação: a validação herdava o `tf_ratio` do treino; a época "melhor" seria escolhida por critérios diferentes em cada regime; passos com perda não finita eram pulados em silêncio; um modelo com NaN faria o rastreador falhar.
+  - Estendeu `motion_rnn.py` com padrões idênticos aos da Parte 2 (verificado: a perda e o IoU de validação do checkpoint antigo ficaram exatamente iguais), escreveu `ablation.py`, 14 testes e rodou 21 treinos.
+- **Validação / Decisões Humanas:**
+  - Os resultados contrariaram duas das três hipóteses (teacher forcing não é pior às cegas na validação; sem clipping nada explode). O relatório registra isso, em vez de ajustar a hipótese depois.
+  - Uma das medidas planejadas ("deriva" só com as próprias previsões) se mostrou inútil (igual em todos os regimes) e ficou documentada como resultado negativo.
+  - Os runs com e sem clipping no teacher forcing deram resultados idênticos bit a bit, o que foi usado como checagem de que o clipping estava mesmo desligado.

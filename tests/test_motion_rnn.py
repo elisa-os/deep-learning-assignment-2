@@ -134,8 +134,9 @@ def test_model_learns_constant_velocity_and_beats_standing_still():
         c = np.array([300., 200.]) + np.arange(60)[:, None] * v
         boxes = np.concatenate([c, np.tile([30., 80.], (60, 1))], 1)
         segs.append(Segment("syn", i, np.arange(60), boxes, np.ones(60), (640., 480.)))
+    # a validação agora tem protocolo próprio (val_*); aqui a validação também é sem buracos
     cfg = TrainSettings(epochs=15, steps_per_epoch=40, batch_size=32, window_T=16, gap_prob=0.0,
-                        obs_noise=(0.0, 0.0, 0.0, 0.0), lr=3e-3)
+                        val_gap_prob=0.0, obs_noise=(0.0, 0.0, 0.0, 0.0), lr=3e-3)
     torch.manual_seed(0)
     m = MotionRNN("GRU", 32)
     val = WindowSampler(segs[:10], 16).fixed_windows()

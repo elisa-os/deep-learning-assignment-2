@@ -98,6 +98,12 @@ parte2:
   train_strides: [1]
 
 # ── Parte 3 — Ablação: Eixo 2 (regime de treino) ─────────
+# Mesmo modelo da Parte 2 (GRU 64) e mesma detecção congelada (SDP). O que varia é o regime de
+# treino (ver `regimes`). Todos os regimes treinam o mesmo nº de épocas e o checkpoint é o da
+# ÚLTIMA época (sem escolher a época pela validação). `gap_prob: 0` isola o efeito do regime:
+# com buracos simulados o teacher forcing deixaria de ser puro. "part2_recipe" é a receita da
+# Parte 2 (teacher forcing + buracos simulados) re-treinada sob o mesmo protocolo.
+# Etapa 1 (essencial) = 4 primeiros regimes; etapa 2 = os 3 últimos.
 parte3:
   synthetic: false
   data_dir: data/MOT17
@@ -106,41 +112,67 @@ parte3:
     val: []
     test: []
   detector_source: "SDP"
-  batch_size: 1
+  batch_size: 64
   num_workers: 0
-  epochs: 30
-  lr: 1.0e-3
+  epochs: 20
+  steps_per_epoch: 100
+  lr: 2.0e-3
+  gradient_clipping: true
+  grad_clip_value: 1.0
   rnn:
-    type: "LSTM"
+    type: "GRU"
     input_size: 10
     hidden_size: 64
     num_layers: 1
     dropout: 0.0
     use_delta_t: true
     predict_uncertainty: false
-  association:
+  association:         # a mesma regra das Partes 1 e 2
     method: "greedy"
     iou_threshold: 0.3
     max_age: 30
     min_hits: 3
+    min_conf: null
+    eval_iou: 0.5
   window_T: 32
+  obs_noise: [0.06, 0.025, 0.08, 0.045]
+  train_strides: [1]
   ablation:
     axis: "eixo2"
     seeds: [42, 123, 456]
     regimes:
-      - name: "teacher_forcing"
+      # ── etapa 1 ──
+      - name: "teacher_forcing"          # só observações; nunca vê as próprias previsões
         teacher_forcing_ratio: 1.0
+        gap_prob: 0.0
         gradient_clipping: true
-        grad_clip_value: 1.0
-      - name: "scheduled_sampling"
-        teacher_forcing_ratio: 0.5
+      - name: "scheduled_sampling"       # prob. de observação decai linearmente de 1 a 0
+        teacher_forcing_ratio: 1.0
+        tf_schedule: "linear"
+        tf_end: 0.0
+        gap_prob: 0.0
         gradient_clipping: true
-        grad_clip_value: 1.0
-      - name: "free_running"
+      - name: "free_running"             # só as próprias previsões (depois do 1º quadro)
         teacher_forcing_ratio: 0.0
+        gap_prob: 0.0
         gradient_clipping: true
-        grad_clip_value: 1.0
       - name: "free_running_no_clip"
         teacher_forcing_ratio: 0.0
+        gap_prob: 0.0
         gradient_clipping: false
-        grad_clip_value: 1.0
+      # ── etapa 2 ──
+      - name: "teacher_forcing_no_clip"
+        teacher_forcing_ratio: 1.0
+        gap_prob: 0.0
+        gradient_clipping: false
+      - name: "scheduled_sampling_no_clip"
+        teacher_forcing_ratio: 1.0
+        tf_schedule: "linear"
+        tf_end: 0.0
+        gap_prob: 0.0
+        gradient_clipping: false
+      - name: "part2_recipe"             # teacher forcing + buracos de observação simulados
+        teacher_forcing_ratio: 1.0
+        gap_prob: 0.5
+        max_gap: 20
+        gradient_clipping: true

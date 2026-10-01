@@ -166,18 +166,80 @@ pa2/
 
 ---
 
-## Fase 4 — Parte 3: Ablação (escolher 1 eixo, 3 seeds) (target: até X/2026)
+## Fase 4 — Parte 3: Ablação — Eixo 2 (regime de treino), 3 seeds  *(FEITA — ver `RELATORY_PART3.md`)*
 
-**DECISAO PENDENTE: Qual eixo?**
+**Eixo escolhido: 2** (já declarado no README). Eixo 1 custaria 36 treinos (3 células × 4 janelas T × 3 seeds)
+e exigiria igualar parâmetros entre RNN/LSTM/GRU; só compensaria pela curva de gradiente comparativa da Parte 4,
+que é bônus ("se fizeram o Eixo 1"). Para a Parte 4 basta a curva do GRU.
 
-**Eixo 2 — regime de treino (recomendado):**
-- Teacher forcing → scheduled sampling → free-running
-- Na inferência o modelo se alimenta das próprias previsões (e sob oclusão só delas)
-- Medir efeito de distribution shift
-- Incluir gradient clipping ligado/desligado e reportar o que acontece sem ele
-- 3 seeds, média ± desvio
+### Hipóteses (escritas antes de rodar)
+- H1 (exposure bias): treinar só com observações (TF) dá o melhor erro "com observação" mas piora nas previsões
+  às cegas (k grande), e mais ID switches depois de buracos.
+- H2: free-running melhora o rollout às cegas, mas piora o passo com observação (nunca viu a flag `observada = 1`
+  depois do 1º passo) e o tracking; scheduled sampling fica no meio.
+- H3: sem clipping, o free-running é o mais propenso a explodir (32 passos alimentando a própria previsão
+  através de `w·exp(o/S)`); no TF o clipping quase não importa (smooth-L1 tem gradiente limitado).
+Se os dados contrariarem, o relatório diz isso.
 
-Implementar `pa2/ablation.py` que roda as 3 configurações com 3 seeds, salva checkpoints e métricas, reporta média ± desvio.
+### Desenho
+Fator A (política de entrada) × fator B (clipping), todos com **`gap_prob = 0`** para isolar o efeito (com buracos
+simulados o TF deixa de ser puro: a receita da Parte 2 já expõe o modelo às próprias previsões):
+
+| config | tf | clipping | obs. |
+|---|---|---|---|
+| TF | 1.0 | on / off | teacher forcing puro |
+| SS | 1.0 → 0.0 linear ao longo das épocas | on / off | scheduled sampling |
+| FR | 0.0 | on / off | free-running |
+| **ref. Parte 2** | 1.0 + buracos (p = 0,5, até 20) | on | receita atual; não é TF puro |
+
+= 7 configs × 3 seeds (42, 123, 456) = **21 treinos**. Fixos: GRU 64, T = 32, lr 2e-3, batch 64, ruído de observação
+da Parte 2, **mesmo nº de épocas e checkpoint da ÚLTIMA época** (sem seleção por validação).
+
+### O que medir
+1. **Deriva (distribution shift):** IoU em janelas de validação com observação (inferência normal) vs só com as
+   próprias previsões; e IoU após k quadros às cegas, k ∈ {1,2,5,10,15,20,30} (reuso de `gap_rollout_iou`).
+2. **Tracking** (regra da Parte 2: guloso, IoU 0,3, `max_age` 30, `min_hits` 3; `min_conf` da Parte 1): IDF1, ID
+   switches, ids previstos/verdadeiros nos vídeos de validação (09, 13); os 7 vídeos como secundário (treino é
+   in-sample). Opcional: tabela de reconexão por duração de buraco.
+3. **Estabilidade do treino:** norma do gradiente (média, máx., fração de passos com norma > clip), nº de passos
+   não finitos, "divergiu" (pesos NaN) por seed.
+4. Agregação: média ± desvio amostral (ddof = 1) sobre 3 seeds + CSV por seed. Diferença < 1 desvio = "não
+   distinguível" (n = 3, 2 vídeos de validação: pouco poder). Saídas: barras com erro, curvas IoU×k com banda,
+   normas de gradiente por época (clip on/off).
+
+### Armadilhas encontradas no código atual (corrigir antes de rodar)
+- `eval_windows` usa `cfg.tf_ratio` → a validação de FR/SS mediria outra coisa. Validação deve ter protocolo único.
+- O melhor epoch é escolhido pela perda de validação, que teria significados diferentes por regime → usar a última.
+- Passos com perda não finita são *pulados* em silêncio (`continue`) e o contador `nbad` só vai para o log; sem
+  clipping, gradiente não finito com perda finita atualiza os pesos com NaN. Registrar, não esconder.
+- Um modelo com NaN faz `linear_sum_assignment` levantar erro no rastreador → proteger e reportar "divergiu".
+- Com clipping ligado, norma infinita também dá NaN (coeficiente NaN): medir os dois lados.
+- O treino não é determinístico bit a bit (observado na Parte 2): seeds controlam a inicialização/amostragem, não
+  garantem rerun idêntico. Reportar por seed.
+- FR nunca vê a flag `observada = 1` após o 1º passo, mas na inferência ela é 1 quase sempre: parte do efeito
+  medido é esse descasamento, não só "exposure bias". Interpretar com cuidado (a medida 1 separa os dois casos).
+
+### Implementação (ordem)
+1. `models/motion_rnn.py`: `TrainSettings` ganha `tf_schedule` (`constant|linear`), `tf_end`, `select`
+   (`best|last`), protocolo de validação fixo (tf = 1); histórico guarda norma máx., fração clipada, passos não
+   finitos, flag de divergência. **Padrões = comportamento da Parte 2** (teste de regressão: `--eval-only` do
+   checkpoint atual continua dando os mesmos CSVs).
+2. `pa2/ablation.py` (`run_ablation`, já chamado por `main.py`): laço config × seed, checkpoint em
+   `outputs/parte3_ablation/checkpoints/`, retomável (pula o que já existe), `--jobs` opcional para rodar seeds em
+   paralelo (CPU de 12 núcleos); reaproveita `_Source`, `_track`, `gap_rollout_iou` de `part2.py`.
+3. `config.yaml` `parte3`: GRU, batch 64, lr 2e-3, `regimes` reescritos conforme a tabela acima, seeds.
+4. Testes: agenda de `tf`, `tf = 0` usa só a própria previsão e flag 0, regime sem buracos, guarda de NaN,
+   agregador média ± desvio, parsing do config.
+5. Smoke (1 seed, 2 épocas) → medir tempo → rodada completa em segundo plano → figuras → `RELATORY_PART3.md`,
+   README e `AI_LOG.md`.
+
+### Custo estimado (CPU)
+~6 s/época (30 épocas = 171 s medidos na Parte 2) → 20 épocas ≈ 2 min/treino + ~1 min de avaliação = **~1 h
+sequencial, ~25 min com 3 processos**. O modelo é pequeno: GPU não ajuda.
+
+### Decisão para a Parte 4/5
+O "modelo final" (checkpoint do notebook e base dos testes de estresse) deve ser definido aqui, por regra: o regime
+de maior IDF1 médio de validação; checkpoint da seed 42 (sem escolher a melhor seed).
 
 ---
 
@@ -226,6 +288,45 @@ Feito sem retreinar, em cima do modelo final.
 4. **`AI_LOG.md`:** registrar uso de IA (episódios, decisões, problemas resolvidos)
 5. **Checkpoint:** pesos do modelo temporal (link se for grande)
 6. Commit final e push
+
+---
+
+## Backlog — ajustes adiados (não bloqueiam as partes seguintes)
+
+Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
+
+**Parte 3 (achados que merecem seguimento)**
+- [ ] A receita da Parte 2 (treinar com buracos simulados) **não melhorou** nada frente ao teacher forcing puro
+      (IDF1 val 0,573 × 0,579; IoU às cegas k = 10: 0,410 × 0,464, 3/3 seeds). Decidir se o modelo final das
+      Partes 4/5 e do notebook é o da Parte 2 ou o `teacher_forcing_s42` da Parte 3 (a regra pré-definida aponta
+      para o segundo) e ajustar o texto da Parte 2 se mudar.
+- [ ] Opcional: variante de free-running que alimenta a previsão com a flag "observada = 1" (o free-running atual
+      mistura "viés de exposição" com descasamento da flag).
+- [ ] Opcional: teste de estresse do clipping (lr ×5 e/ou célula RNN simples, que deve ser mais instável) para
+      mostrar *quando* ele passa a importar; hoje "não importa" vale só para este setup.
+- [ ] A medida "IoU só com as próprias previsões a partir do 1º quadro" não discrimina regimes; pode sair do relatório.
+
+**Parte 2**
+- [ ] Relatório: dizer que a validação (vídeos 09 e 13) escolheu a melhor época, logo não é independente; e que o
+      baseline de velocidade constante é uma versão simplificada (média móvel da velocidade, β = 0,5), não um Kalman.
+- [ ] Kalman de velocidade constante de verdade como baseline (o enunciado o permite); corrigir a atualização de
+      velocidade logo após um buraco (hoje usa "observação − última previsão": salta de 8 para 9,5 px/q num objeto a
+      8 px/q); tunar a regra de associação do baseline fora da borda da grade (melhor IoU hoje = 0,1, o mínimo).
+- [ ] Reprodutibilidade: o retreino da RNN não reproduz o checkpoint (IDF1 de treino 0,590 → 0,605; melhor época 6 → 8).
+      Tentar determinismo (threads/seeds) ou documentar; no README, "reproduzir exatamente" = `--eval-only`.
+- [ ] Teste de `kept + switched = fragmentações` também para a RNN (hoje só para a caixa parada).
+- [ ] Opcional do enunciado: incerteza + portão de associação adaptativo (ver Fase 3).
+
+**Configuração**
+- [ ] `input_size`, `dropout`, `num_layers` do YAML não têm efeito (o modelo fixa 10 features e 1 camada).
+- [ ] `parte3` do YAML ainda diz LSTM (a Parte 2 usa GRU) → resolvido pela Fase 4.
+
+**Parte 1**
+- [ ] Rodar o detector torchvision (precisa das imagens do MOT17 e de GPU; `torch.cuda.is_available()` já dá `True`).
+
+**Repositório**
+- [ ] `.gitignore`: `data/` e `outputs/` foram liberados no commit `f169e2a` (51 MB de dados, binários que mudam a
+      cada execução → conflitos). Decidir o que versionar; checar a licença do MOTChallenge (CC BY-NC-SA) se for público.
 
 ---
 
