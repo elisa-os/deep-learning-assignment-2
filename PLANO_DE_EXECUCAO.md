@@ -131,7 +131,9 @@ pa2/
 
 ## Fase 3 — Parte 2: Memória temporal (escolher UMA trilha) (target: até X/2026)
 
-**DECISAO PENDENTE: Trilha A ou B?**
+**Decisão tomada: Trilha A** (só há as anotações do MOT17 em `data/`; a Trilha B precisa dos recortes das imagens).
+
+**Status da Parte 2: feita, exceto o opcional abaixo.** Ver `RELATORY_PART2.md`.
 
 **Trilha A — RNN como modelo de movimento (recomendada):**
 - LSTM/GRU por track, recebe última observação (caixa, confiança, Δt) e prevê caixa do próximo quadro
@@ -152,7 +154,15 @@ pa2/
 3. Gestão de tracks com estado recorrente por track (estado roda forward sob oclusão)
 4. Treinar em trajetórias do ground truth das sequências de treino
 5. Comparar lado a lado com baseline da Parte 1, mesmas métricas, mesmas sequências
-6. Responder na apresentação: o que quebra na fronteira entre janelas de T quadros e o que a representação permitiria fazer para costurar as identidades
+6. Responder na apresentação: o que quebra na fronteira entre janelas de T quadros e o que a representação permitiria fazer para costurar as identidades (rascunho na seção 5 do `RELATORY_PART2.md`)
+
+**Feito:** itens 1–5 (modelo, rastreador com movimento, estado por track sob oclusão, treino no GT, comparação lado a lado com a Parte 1 e com velocidade constante), análise de reconexão depois de buracos e rascunho do item 6.
+
+**Falta (opcional do enunciado): incerteza e portão de associação adaptativo.**
+- [ ] Cabeça da rede prevendo também a log-variância da caixa (`predict_uncertainty: true`; hoje levanta `NotImplementedError` em `MotionRNN`)
+- [ ] Perda: log-verossimilhança gaussiana no lugar do smooth-L1
+- [ ] Portão na associação: aceitar o par só se a distância de Mahalanobis (caixa prevista × detecção) estiver abaixo de um limiar, no lugar do IoU fixo; o portão se alarga sozinho sob oclusão
+- [ ] Comparar com a versão sem incerteza nas mesmas sequências; entra nas métricas da Parte 2 e pode alimentar a Parte 4 (o portão largo ajuda ou atrapalha nos buracos longos?)
 
 ---
 
@@ -223,7 +233,7 @@ Feito sem retreinar, em cima do modelo final.
 
 | # | Decisão | Recomendação | Responsável |
 |---|---|---|---|
-| 1 | Trilha A ou B (Parte 2) | Trilha A (RNN movimento) | dupla |
+| 1 | Trilha A ou B (Parte 2) | **Decidido: Trilha A** (RNN movimento) | dupla |
 | 2 | Eixo de ablação (Parte 3) | Eixo 2 (regime de treino) | dupla |
 | 3 | Teste de estresse (Parte 5) | Queda de taxa de quadros | dupla |
 | 4 | Sequência MOT17 de validação nunca vista | Justificar por câmera parada/móvel, densidade, ponto de vista | dupla |
