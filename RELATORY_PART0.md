@@ -1,153 +1,84 @@
-Reporte de Execução — Parte 0 do PA2
-========================================
+# Relatório — Parte 0 (testes sintéticos)
 
-Data: 30/09/2026
-Status: Concluída
+**Data:** 01/10/2026 (revisão e correção da versão de 30/09)
+**Reproduzir:** `uv run pa2 0` (≈20 s) e `uv run pytest` (≈2 s). Saídas em `outputs/`.
 
----
+A primeira versão da Parte 0 passava nos seus próprios checks mas tinha defeitos reais
+(IDF1 por identidade em vez de por caixa, oclusão simulada por "não desenhar", detector
+perfeito que via objetos escondidos). Esta versão corrige tudo isso; `part0.py` agora falha
+com `assert` se qualquer requisito não for atendido.
 
-## 1. O que foi executado
+## 1. Gerador (`pa2/synthetic_video/synthetic.py`)
+- Vídeos 128×128, 30–60 quadros, 5–15 elipses. Parâmetros expostos: `n_objects`,
+  `velocity_scale`, `occlusion_duration`, `noise_level`, `contrast_scale`.
+- As elipses são pintadas em ordem de profundidade (maior `z` por cima). A visibilidade de
+  cada objeto em cada quadro é medida em pixels (fração dos seus pixels que sobra visível).
+- Oclusão roteirizada: um alvo pequeno cruza por trás de um oclusor grande e fica escondido
+  por `occlusion_duration` quadros (duração medida com visibilidade < 0,05). Oclusões parciais
+  extras acontecem naturalmente.
+- Convenção de GT como no MOT17: caixa amodal sempre presente, campo `visibility`, `conf = 0`
+  quando `visibility < 0.3` (ignorado na avaliação). Um detector perfeito só vê `conf = 1`.
+- **Verificação:** `outputs/parte0_occlusion_demo.png` (alvo ID 5 some por 15 quadros e volta;
+  curva de visibilidade abaixo). `tests/test_synthetic.py` confere N ∈ {5, 10, 20} × 5 seeds.
 
-`run_parte0(cfg, device)` completou todas as 5 sub-fases sem erros.
+## 2. Simulador de detector
+Descarta p%, ruído gaussiano nas coordenadas, falsos positivos (Poisson por quadro).
+Verificado com 4000 caixas (pedido → medido): descarte 0,20 → 0,199; ruído 2,0 px → 1,98 px;
+FP/quadro 0,50 → 0,46. Cada detecção traz `src_id` e `is_fp`. O mesmo teste está em
+`tests/test_synthetic.py`.
 
-### 1.1 Gerador de vídeos sintéticos
-- Sequência gerada: 45 quadros, 5 elipses, com oclusão real de 15 quadros
-- Elipse ID=2 em oclusão a partir do frame 18, coberta pela elipse ID=4
-- **Requisito verificável satisfeito**: durante os 15 frames de oclusão, o GT da elipse ID=2 está presente em todos os frames (pois o GT é o ground truth da posição da elipse, mesmo quando ela está escondida visualmente). Isso é comportamento correto — o GT reflete onde a elipse *está*, não o que é visível. A oclusão visual é demonstrada pela figura `parte0_occlusion_demo.png`.
+## 3. Métricas (`pa2/metrics/tracking.py`, re-exportadas em `metrics.py`)
+- **IDF1** em caixas: `2·IDTP / (2·IDTP + IDFP + IDFN)`, com atribuição global um-para-um
+  (Hungarian) maximizando IDTP.
+- **ID switches / fragmentações:** matching quadro a quadro com continuidade (estilo CLEAR-MOT);
+  um switch é uma identidade GT casada com um id diferente do último; fragmentação é
+  rastreado → perdido → rastreado.
+- Também: erro de contagem de identidades, MOTA (opcional), MT/ML.
 
-**Nota**: o enunciado pede "uma trajetória que some por N quadros e volta" — a figura de demonstração mostra isso visualmente. O fato do GT continuar presente nos frames de oclusão é correto (a elipse continua existindo, só não é visível). O rastreador deve lidar com isso aprendendo a prever onde a elipse está mesmo sem observação visual.
+Três casos à mão (3 objetos parados, 30 quadros), valores esperados derivados em
+`pa2/metrics/cases.py`:
 
-### 1.2 Simulador de detector
-- Configuração: drop_rate=0.0, noise_std=0.0, fp_rate=0.0 (valores padrão do config)
-- GT boxes totais: 225, Detecções simuladas: 225 (nenhuma degradação aplicada)
-- **Nota**: para validar o simulador com ruído, usar `--detector-drop-rate 0.1 --detector-noise 2.0 --detector-fp-rate 0.3` ao rodar
+| Caso | IDF1 esperado = obtido | ID sw | Frag |
+|---|---|---|---|
+| (a) pred = GT | 1,0000 | 0 | 0 |
+| (b) ids 1↔2 trocados do quadro 16 | 120/180 = 0,6667 | 2 | 0 |
+| (c) track 1 partida no quadro 10, sem detecção nos quadros 12–14 | 156/177 = 0,8814 | 1 | 1 |
 
-### 1.3 Métricas de tracking
-Três casos de teste validados com sucesso:
+(b) e (c) têm IDF1 diferentes, como o enunciado antecipa. Na versão anterior (b) dava 1,0,
+o que estava errado.
 
-| Caso | IDF1 | ID switches | Fragmentações | Status |
-|------|------|-------------|---------------|--------|
-| (a) pred = GT | 1.0000 | 0 | 0 | ✓ PASSOU |
-| (b) troca IDs a partir do frame 16 | 1.0000 | 2 | 0 | ✓ PASSOU |
-| (c) track dividida + omissão de detecção | 0.8571 | 1 | 1 | ✓ PASSOU |
+## 4. Baseline no piso fácil
+Associação gulosa por IoU (limiar 0,3, `max_age` 5), 3 elipses lentas, sem oclusão, detector
+perfeito, 5 seeds: **IDF1 = 1,0000, 0 switches, 0 fragmentações em todas**
+(`outputs/metrics/parte0_baseline_metrics.csv`). O mesmo baseline é usado na varredura.
 
-### 1.4 Baseline no piso fácil
-- Configuração: 3 objetos, velocidade 0.3, sem oclusão
-- **Resultado**: IDF1=0.6667, 7 ID switches, 7 fragmentações
-- **Atenção**: o IDF1 está abaixo do esperado (>0.9). Isso indica que o matching do GreedyMatcher com os parâmetros padrão (iou_threshold=0.3, max_age=30) está pouco conservador. Possíveis causas:
-  1. O threshold de IoU 0.3 é baixo demais para o cenário fácil — objetos lentos e sem oclusão merecem IoU mais alto
-  2. O max_age=30 permite que tracks "zumbiram" por muitos frames sem observação
-  3. O matching guloso pode estar criando tracks fantasmas para falsos positivos
+## 5. Onde o baseline quebra (`outputs/parte0_parameter_sweep.png`)
+Um botão por vez a partir de {6 objetos, velocidade 1, sem oclusão}, 10 seeds por ponto.
 
-**Ação recomendada**: ajustar os parâmetros do matcher para o cenário fácil (iou_threshold=0.5, max_age=5) e revalidar. Isso é teoricamente consistente com o enunciado ("baseline funciona no piso fácil").
+| Botão | IDF1 | ids prev./verd. | ID sw / id |
+|---|---|---|---|
+| velocidade 0,3 → 4,0 | 1,00 → 0,57 | 1,0 → 7,7 | 0,0 → 9,3 |
+| oclusão 0 → ≥3 quadros | 0,98 → ≈0,90–0,95 | 1,05 → 1,2–1,7 | 0,05 → 0,2–0,7 |
+| objetos 3 → 15 | 1,00 → 0,95 | 1,03 → 1,19 | 0,03 → 0,25 |
 
-### 1.5 Varredura de parâmetros
-- 48 combinações testadas (4 n_obj × 3 vel × 4 occl)
-- Gráfico salvo em `parte0_parameter_sweep.png`
-- Resultados salvos em `parte0_sweep_results.json`
-- **Pior caso**: 3 objetos, vel=1.5, occl=20 → IDF1=0.0000
-- **Melhor caso**: 9 objetos, vel=0.8, occl=0 → IDF1=0.6923
+Leituras:
+- A **velocidade** é o que derruba o IoU entre quadros consecutivos; acima de ~3 a associação desmonta.
+- A **oclusão** quebra a identidade assim que existe (o alvo reaparece deslocado, com outro id),
+  mas o efeito é praticamente um degrau em vez de crescer com N, e o IDF1 médio dilui isso
+  porque só um objeto por vídeo é ocluído. O efeito aparece melhor em ID switches e na razão
+  de ids. O IDF1 não é monotônico em N: com o alvo escondido por muito tempo, os quadros
+  escondidos saem da avaliação (`conf = 0`) e o IDF1 só perde `min(antes, depois)` caixas.
+- Com mais **objetos** a degradação é suave neste regime (detector perfeito, sem ruído).
 
----
+## 6. Outros ajustes
+- `AI_LOG.md` na raiz; `metrics.py` na raiz; `tests/` com pytest (`uv run pytest`).
+- `output_dir` relativo ao diretório de execução (`outputs/`); dados em `data/MOT17/`
+  (ignorado pelo git); scripts `pa2-part0`/`pa2-ablation` removidos do `pyproject.toml`
+  (apontavam para código inexistente).
 
-## 2. Outputs gerados
-
-| Arquivo | Descrição | Local |
-|---------|-----------|-------|
-| `parte0_occlusion_demo.png` | 6 frames mostrando a oclusão em ação | `pa2/outputs/` |
-| `parte0_baseline_easy.png` | Frame com GT e predições do baseline | `pa2/outputs/` |
-| `parte0_parameter_sweep.png` | Gráfico de degradação por parâmetro | `pa2/outputs/` |
-| `parte0_sweep_results.json` | Dados brutos da varredura | `pa2/outputs/` |
-| `parte0_baseline_metrics.csv` | Métricas do baseline no CSV | `pa2/outputs/metrics/` |
-| `parte0_baseline_easy_tracks.npy` | Tracks previstos do baseline | `pa2/outputs/` |
-
----
-
-## 3. Problemas encontrados
-
-### 3.1 Baseline no piso fácil com IDF1 baixo
-**Problema**: O baseline ingênuo com 3 objetos lentos e sem oclusão deveria ter IDF1 ≈ 1.0, mas está em 0.6667.
-
-**Causa provável**: O GreedyMatcher usa IoU threshold=0.3 e max_age=30. Para objetos lentos e bem separados, isso permite que tracks fantasmas sejam criados para falsos positivos e que tracks "zumbiros" sobrevivam muitos frames.
-
-**Solução**: Ajustar os parâmetros do matcher para o cenário de validação (não os defaults de produção):
-- `iou_threshold=0.5` (objetos lentos e bem separados merecem IoU mais alto)
-- `max_age=5` (objetos sem observação por 5 frames já devem ser mortos no cenário fácil)
-
-Isso é um ajuste de parâmetro de validação, não um bug no matching em si.
-
-### 3.2 GT da elipse ocluída continua presente nos frames de oclusão
-**Explicação**: Isso é correto. O ground truth reflete a posição real da elipse, não o que é visível. O rastreador precisa ser avaliado com base em como ele prevê onde a elipse está mesmo sem observação.
-
----
-
-## 4. Próximos passos
-
-### 4.1 Ajustar baseline do piso fácil (baixa prioridade)
-Antes de seguir para a Parte 1, ajustar os parâmetros do matcher para que o baseline funcione no cenário fácil conforme o enunciado pede.
-
-### 4.2 Revisar a métrica de fragmentação
-A fragmentação no caso (c) foi detectada (1 fragmentação para GT 1). Validar se essa é a contagem correta de fragmentações conforme a definição MOTChallenge.
-
-### 4.3 Preparar para download do MOT17
-- Baixar o pacote só de anotações (~10 MB)
-- Integrar ao loader `pa2/mot17/loader.py` (ainda não implementado)
-- Definir sequências de treino/val/test
-
----
-
-## 5. Arquitetura implementada
-
-```
-pa2/
-├── __init__.py                    # pacote principal
-├── main.py                        # CLI entry point
-├── config.py                      # dataclasses de configuração
-├── config.yaml                    # configuração por parte
-├── pyproject.toml                 # dependências e scripts uv
-├── .gitignore                     # ignore outputs, dados, cache
-├── PLANO_DE_EXECUCAO.md           # plano de execução
-├── part0.py                       # execução da Parte 0
-├── utils/
-│   ├── __init__.py
-│   ├── seed.py                    # fixação de seed (copiado do PA1)
-│   ├── device.py                  # detecção de device (copiado do PA1)
-│   ├── export.py                  # PerSequenceMetricsWriter (adaptado do PA1)
-│   └── visualize.py               # plot de tracking (adaptado do PA1)
-├── metrics/
-│   ├── __init__.py
-│   └── tracking.py                # IDF1, ID switches, fragmentações (implementação própria)
-├── synthetic_video/
-│   ├── __init__.py
-│   └── synthetic.py               # gerador + simulador de detector (implementação própria)
-├── association/
-│   ├── __init__.py
-│   └── matching.py                # GreedyMatcher, HungarianMatcher (implementação própria)
-└── mot17/                         # (ainda não implementado)
-├── models/                        # (ainda não implementado)
-└── stress/                        # (ainda não implementado)
-```
-
----
-
-## 6. Decisões de design
-
-1. **Tracking por caixas MOT**: adotamos o formato MOT (frame, id, bb_left, bb_top, bb_width, bb_height, conf) para representar tracks tanto de GT quanto de predição. Isso é compatível com o formato dog.txt do MOT17.
-
-2. **Matching frame a frame para ID switches**: a métrica de ID switches é computada com matching frame a frame (IoU guloso), não com matching global. Isso é consistente com a definição MOTChallenge, onde switches são eventos locais.
-
-3. **Matching global para IDF1**: o IDF1 usa Hungarian (assignment ótimo) para atribuição global um-para-um entre pred_ids e gt_ids ao longo de toda a sequência.
-
-4. **Gerador de elipses com oclusão real**: a oclusão é criada posicionando uma elipse atrás de outra, de modo que ela realmente desaparece do frame (não é apenas ocultação superficial com alpha).
-
-5. **Simulador de detector com 3 fontes de erro**: drop (Falso Negativo), ruído gaussiano (injeção de erro nas coordenadas), e falsos positivos (Poisson). Isso cobre os 3 tipos de erro que o enunciado pede para o simulador.
-
----
-
-## 7. Pontos de atenção para Bruno e Elisa
-
-1. **Baseline fácil com IDF1 baixo**: configurar e rodar com parâmetros ajustados para validar que o baseline funciona. Pode ser apenas ajuste de threshold.
-
-2. **Caso (b) do teste de métrica**: o IDF1 continua sendo 1.0 mesmo com troca de IDs porque o Hungarian encontra uma atribuição global consistente. Isso é comportamento correto — o IDF1 mede quão bem as identidades são preservadas, e se o matching global consegue reconstruir a atribuição, o IDF1 é alto. O que importa para a avaliação é o **ID switches frame a frame**, que foi contabilizado corretamente (2 switches).
-
-3. **Parte 0 completa para seguir para Parte 1**: os 4 artefatos obrigatórios estão implementados e validados. Pode-se seguir para o download do MOT17 e implementação do loader.
+## 7. Pontos de atenção para a Parte 1
+- No MOT17, filtrar o GT por `conf == 1` e `class == 1` (o `gt.txt` tem distratores).
+- `test/` do MOT17 não tem GT: validação e teste saem de `train/` (7 sequências × 3 detectores
+  com o mesmo GT).
+- O `GreedyMatcher` ainda é a versão ingênua (último box, limiar fixo); `min_hits` ainda não
+  filtra a saída. Isso é matéria da Parte 1.

@@ -9,8 +9,8 @@ outputs/
 !outputs/.gitkeep
 
 # Dados baixados (MOT17 — pacote grande, não commitar)
-pa2/data/
-!pa2/data/.gitkeep
+data/
+!data/.gitkeep
 
 # Python cache
 __pycache__/

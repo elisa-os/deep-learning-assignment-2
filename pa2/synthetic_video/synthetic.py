@@ -1,25 +1,42 @@
 """Gerador de vídeos sintéticos e simulador de detector para o PA2 — Parte 0.
 
 Implementa:
-1. Gerador de vídeos 128×128 com 30-60 quadros, 5-15 elipses em movimento
-   com ordem de profundidade para oclusão real.
-2. Simulador de detector: descarta p% das detecções, adiciona ruído nas
-   coordenadas, injeta falsos positivos.
+1. Gerador de vídeos (default 128x128, 30-60 quadros, 5-15 elipses em movimento).
+   As elipses são pintadas em ordem de profundidade (algoritmo do pintor), então uma
+   elipse mais próxima realmente esconde pixels das que estão atrás. Para cada
+   elipse, em cada quadro, mede-se a *visibilidade* (fração dos seus pixels que
+   aparece na imagem final).
+2. Oclusão controlada: um par (alvo, oclusor) é roteirizado para que o alvo passe
+   por trás do oclusor e fique totalmente escondido por ~``occlusion_duration``
+   quadros, saindo do outro lado. Outras oclusões parciais acontecem naturalmente
+   quando as elipses se cruzam.
+3. Simulador de detector: descarta p% das caixas, adiciona ruído nas coordenadas e
+   injeta falsos positivos.
+
+Convenções de ground truth (iguais às do MOT17)
+------------------------------------------------
+``gt_tracks`` tem uma caixa *amodal* (a elipse inteira, mesmo escondida) por
+objeto e quadro, com o campo ``visibility``. ``conf = 1`` se
+``visibility >= min_visibility`` e ``0`` caso contrário (objeto praticamente
+escondido: fica fora da avaliação, como as caixas "ignoradas" do MOT17).
+``true_boxes`` são as caixas que um detector perfeito veria: só os objetos com
+``conf = 1``. Um detector não vê o que está atrás de outro objeto.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional, Any
 import math
-import random
-from pathlib import Path
+from dataclasses import dataclass
+from typing import Any, Optional
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from pa2.utils import set_seed
+
+MIN_VISIBILITY = 0.3        # abaixo disso o objeto conta como escondido
+HIDDEN_VISIBILITY = 0.05    # "some de verdade" (usado para medir a duração da oclusão)
 
 
 @dataclass
@@ -33,8 +50,8 @@ class Ellipse:
     angle: float
     vx: float
     vy: float
-    color: tuple[float, float, float]  # RGB
-    depth: int
+    color: tuple[float, float, float]  # RGB em [0, 1]
+    z: int                              # maior z = mais perto da câmera (pintado por cima)
 
 
 @dataclass
@@ -51,52 +68,44 @@ class SyntheticSequence:
     detections: list[dict[str, Any]] | None = None
 
 
-def _draw_ellipse(
-    image: np.ndarray,
-    ellipse: Ellipse,
-) -> None:
-    """Desenha uma elipse no frame respeitando ordem de profundidade (implicitamente pelo caller)."""
-    from skimage.draw import ellipse as sk_ellipse
-
-    H, W = image.shape[:2]
-    rr, cc = sk_ellipse(
-        ellipse.cy, ellipse.cx,
-        ellipse.ry, ellipse.rx,
-        rotation=ellipse.angle,
-        shape=image.shape[:2],
-    )
-    for y, x in zip(rr, cc):
-        if 0 <= y < H and 0 <= x < W:
-            image[y, x, 0] = ellipse.color[0]
-            image[y, x, 1] = ellipse.color[1]
-            image[y, x, 2] = ellipse.color[2]
+# ─────────────────────────────────────────────────────────────────────────────
+# Geometria / rasterização
+# ─────────────────────────────────────────────────────────────────────────────
+def _ellipse_mask(
+    yy: np.ndarray, xx: np.ndarray, cx: float, cy: float, rx: float, ry: float, angle: float
+) -> np.ndarray:
+    """Máscara booleana da elipse rotacionada (equação implícita, vetorizada)."""
+    c, s = math.cos(angle), math.sin(angle)
+    dx, dy = xx - cx, yy - cy
+    u = dx * c + dy * s
+    v = -dx * s + dy * c
+    return (u / rx) ** 2 + (v / ry) ** 2 <= 1.0
 
 
-def _draw_ellipse_fast(
-    image: np.ndarray,
-    cx: float,
-    cy: float,
-    rx: float,
-    ry: float,
-    angle: float,
-    color: tuple[float, float, float],
-) -> None:
-    """Desenha elipse usando equação da elipse rotacionada via máscara pixel a pixel (lento mas certeiro)."""
-    from skimage.draw import ellipse as sk_ellipse
-
-    rr, cc = sk_ellipse(
-        cy, cx,
-        ry, rx,
-        rotation=angle,
-        shape=image.shape[:2],
-    )
-    for y, x in zip(rr, cc):
-        if 0 <= y < image.shape[0] and 0 <= x < image.shape[1]:
-            image[y, x, 0] = color[0]
-            image[y, x, 1] = color[1]
-            image[y, x, 2] = color[2]
+def _ellipse_bbox(e: Ellipse, frame_size: int) -> tuple[int, int, int, int]:
+    """Caixa envolvente [left, top, w, h] (inteira) da elipse rotacionada, cortada ao quadro."""
+    c, s = math.cos(e.angle), math.sin(e.angle)
+    hw = math.sqrt((e.rx * c) ** 2 + (e.ry * s) ** 2)
+    hh = math.sqrt((e.rx * s) ** 2 + (e.ry * c) ** 2)
+    x1 = max(0, int(math.floor(e.cx - hw)))
+    y1 = max(0, int(math.floor(e.cy - hh)))
+    x2 = min(frame_size, int(math.ceil(e.cx + hw)))
+    y2 = min(frame_size, int(math.ceil(e.cy + hh)))
+    return x1, y1, max(1, x2 - x1), max(1, y2 - y1)
 
 
+def _reflect(p: float, lo: float, hi: float, v: float) -> tuple[float, float]:
+    """Reflete posição/velocidade nas paredes [lo, hi]."""
+    if p < lo:
+        return lo + (lo - p), abs(v)
+    if p > hi:
+        return hi - (p - hi), -abs(v)
+    return p, v
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gerador
+# ─────────────────────────────────────────────────────────────────────────────
 def generate_synthetic_sequence(
     rng: np.random.Generator,
     *,
@@ -105,146 +114,181 @@ def generate_synthetic_sequence(
     n_objects: int = 8,
     velocity_scale: float = 1.0,
     occlusion_duration: int = 10,
-    seed_offset: int = 0,
+    noise_level: float = 0.0,
+    contrast_scale: float = 1.0,
+    min_visibility: float = MIN_VISIBILITY,
+    seed_offset: int = 0,  # mantido por compatibilidade; a aleatoriedade vem de ``rng``
 ) -> SyntheticSequence:
-    """Gera uma sequência sintética com elipses em movimento e oclusão."""
+    """Gera uma sequência sintética.
+
+    Parâmetros
+    ----------
+    n_objects          : número de elipses (>= 2 para haver oclusão roteirizada).
+    velocity_scale     : velocidade típica em px/quadro das elipses livres.
+    occlusion_duration : quadros em que o alvo fica escondido atrás do oclusor
+                         (0 = sem oclusão roteirizada). É limitado a
+                         ``num_frames - 4`` para o alvo aparecer antes e depois.
+    noise_level        : desvio-padrão do ruído gaussiano na imagem (escala [0, 1]).
+    contrast_scale     : escala o contraste dos objetos contra o fundo (1 = normal).
+    min_visibility     : visibilidade mínima para o objeto contar como visível.
+    """
     H = W = frame_size
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    yy += 0.5
+    xx += 0.5
 
+    scripted = occlusion_duration > 0 and n_objects >= 2
+    N = int(min(occlusion_duration, max(0, num_frames - 4))) if scripted else 0
+    scripted = scripted and N > 0
+
+    # ── elipses ─────────────────────────────────────────────────────────────
+    speed0 = velocity_scale * 1.5
     ellipses: list[Ellipse] = []
-    colors: list[tuple[float, float, float]] = []
-
-    for i in range(n_objects):
-        hue = (i / n_objects) * 0.8 + 0.1
-        r = math.sin(2 * math.pi * hue) * 0.5 + 0.5
-        g = math.sin(2 * math.pi * (hue + 1 / 3)) * 0.5 + 0.5
-        b = math.sin(2 * math.pi * (hue + 2 / 3)) * 0.5 + 0.5
-        colors.append((r, g, b))
-
-    for i in range(n_objects):
-        margin = 20
-        cx = float(rng.uniform(margin, W - margin))
-        cy = float(rng.uniform(margin, H - margin))
-        rx = float(rng.uniform(6, 16))
-        ry = float(rng.uniform(6, 16))
-        angle = float(rng.uniform(0, 2 * math.pi))
-
-        target_x = float(rng.uniform(margin, W - margin))
-        target_y = float(rng.uniform(margin, H - margin))
-        dx = target_x - cx
-        dy = target_y - cy
-        dist = math.sqrt(dx ** 2 + dy ** 2)
-        if dist > 0:
-            vx = (dx / dist) * float(rng.uniform(0.3, 1.2)) * velocity_scale
-            vy = (dy / dist) * float(rng.uniform(0.3, 1.2)) * velocity_scale
-        else:
-            vx = float(rng.uniform(-0.5, 0.5)) * velocity_scale
-            vy = float(rng.uniform(-0.5, 0.5)) * velocity_scale
-
+    for i in range(1, n_objects + 1):
+        heading = float(rng.uniform(0, 2 * math.pi))
+        speed = speed0 * float(rng.uniform(0.5, 1.5))
+        rx = float(rng.uniform(5, 14))
+        ry = float(rng.uniform(5, 14))
         ellipses.append(Ellipse(
-            id=i + 1,
-            cx=cx, cy=cy,
+            id=i,
+            cx=float(rng.uniform(rx + 2, W - rx - 2)),
+            cy=float(rng.uniform(ry + 2, H - ry - 2)),
             rx=rx, ry=ry,
-            angle=angle,
-            vx=vx, vy=vy,
-            color=colors[i],
-            depth=int(rng.integers(1, 100)),
+            angle=float(rng.uniform(0, math.pi)),
+            vx=speed * math.cos(heading),
+            vy=speed * math.sin(heading),
+            color=tuple(float(c) for c in rng.uniform(0.35, 1.0, 3)),
+            z=0,
         ))
+    # profundidade: permutação única (maior z = mais perto)
+    for e, z in zip(ellipses, rng.permutation(n_objects)):
+        e.z = int(z)
 
-    ellipses_sorted = sorted(ellipses, key=lambda e: e.depth)
+    # ── oclusão roteirizada ─────────────────────────────────────────────────
+    target = occluder = None
+    rel_u = np.zeros(2)
+    t_mid = 0.0
+    start = -1
+    rel_limit = 0.0
+    if scripted:
+        target, occluder = (ellipses[i] for i in rng.choice(n_objects, 2, replace=False))
+        # oclusor grande e quase circular; alvo pequeno
+        occluder.rx = float(rng.uniform(20, 28))
+        occluder.ry = occluder.rx * float(rng.uniform(0.9, 1.0))
+        target.rx = float(rng.uniform(5, 8))
+        target.ry = target.rx
+        occluder.cx = float(rng.uniform(occluder.rx + 4, W - occluder.rx - 4))
+        occluder.cy = float(rng.uniform(occluder.ry + 4, H - occluder.ry - 4))
+        occluder.vx *= 0.4
+        occluder.vy *= 0.4
+        # o oclusor tem que ficar na frente do alvo
+        if occluder.z < target.z:
+            occluder.z, target.z = target.z, occluder.z
 
-    occlusion_ellipse = ellipses[int(rng.integers(0, len(ellipses)))]
-    occlusion_start = int(rng.integers(occlusion_duration, num_frames - occlusion_duration))
+        # o alvo atravessa o oclusor em linha reta (movimento relativo uniforme u).
+        # Totalmente dentro enquanto |rel| <= D (D = rr - rt); a visibilidade só passa
+        # de HIDDEN_VISIBILITY quando ele sai ~0.15*rt além disso. Calibramos a
+        # velocidade para que o intervalo "escondido" tenha N quadros.
+        D = min(occluder.rx, occluder.ry) - max(target.rx, target.ry)
+        u_mag = 2.0 * (D + 0.15 * target.rx) / N
+        ang = float(rng.uniform(0, 2 * math.pi))
+        rel_u = u_mag * np.array([math.cos(ang), math.sin(ang)])
+        pre = min(8, (num_frames - N) // 2)
+        start = int(rng.integers(pre, num_frames - N - pre + 1))   # 0-based, 1º quadro escondido
+        t_mid = start + (N - 1) / 2.0
+        rel_limit = D + 2 * max(target.rx, target.ry) + 12  # fora do oclusor, sem se afastar muito
 
-    covering_ellipses = [e for e in ellipses if e.depth < occlusion_ellipse.depth]
-    if not covering_ellipses:
-        covering_ellipses = [e for e in ellipses if e.id != occlusion_ellipse.id]
-    covering_ellipse = covering_ellipses[int(rng.integers(0, len(covering_ellipses)))]
+    # ── cores / fundo ───────────────────────────────────────────────────────
+    bg = np.zeros((H, W, 3), dtype=np.float32)
+    bg[..., 0] = 0.05 + 0.02 * (xx / W)
+    bg[..., 1] = 0.05 + 0.02 * (yy / H)
+    bg[..., 2] = 0.05
+    bg_mean = bg.mean(axis=(0, 1))
+
+    colors = {}
+    for e in ellipses:
+        c = np.asarray(e.color, dtype=np.float32)
+        colors[e.id] = np.clip(bg_mean + (c - bg_mean) * contrast_scale, 0, 1)
+
+    draw_order = sorted(ellipses, key=lambda e: e.z)  # fundo -> frente
 
     frames: list[np.ndarray] = []
     gt_tracks: list[dict[str, Any]] = []
     true_boxes: list[dict[str, Any]] = []
-    occlusion_durations: list[int] = [occlusion_duration]
+    target_vis: list[float] = []
+    margin = 1.0
 
     for frame_idx in range(num_frames):
-        frame = np.zeros((H, W, 3), dtype=np.float32)
-        for y in range(H):
-            for x in range(W):
-                frame[y, x, 0] = 0.05 + 0.02 * (x / W)
-                frame[y, x, 1] = 0.05 + 0.02 * (y / H)
-                frame[y, x, 2] = 0.05
+        # ── posições deste quadro ───────────────────────────────────────────
+        if scripted:
+            rel = rel_u * (frame_idx - t_mid)
+            norm = float(np.linalg.norm(rel))
+            if norm > rel_limit:
+                rel = rel * (rel_limit / norm)
+            target.cx = float(np.clip(occluder.cx + rel[0], target.rx, W - target.rx))
+            target.cy = float(np.clip(occluder.cy + rel[1], target.ry, H - target.ry))
 
-        in_occlusion = (occlusion_start <= frame_idx < occlusion_start + occlusion_duration)
+        # ── pintura em ordem de profundidade + mapa de ids ─────────────────
+        frame = bg.copy()
+        label = np.zeros((H, W), dtype=np.int32)
+        full_area: dict[int, int] = {}
+        for e in draw_order:
+            m = _ellipse_mask(yy, xx, e.cx, e.cy, e.rx, e.ry, e.angle)
+            full_area[e.id] = int(m.sum())
+            frame[m] = colors[e.id]
+            label[m] = e.id
 
-        for ellipse in ellipses_sorted:
-            is_occluded = False
-            if in_occlusion and ellipse.id == occlusion_ellipse.id:
-                dx = ellipse.cx - covering_ellipse.cx
-                dy = ellipse.cy - covering_ellipse.cy
-                dist = math.sqrt(dx ** 2 + dy ** 2)
-                if dist < (covering_ellipse.rx + covering_ellipse.ry) * 0.7:
-                    is_occluded = True
-            if not is_occluded:
-                _draw_ellipse_fast(frame, ellipse.cx, ellipse.cy,
-                                   ellipse.rx, ellipse.ry, ellipse.angle,
-                                   ellipse.color)
+        vis_count = np.bincount(label.ravel(), minlength=n_objects + 1)
 
-        for ellipse in ellipses:
-            ellipse.cx += ellipse.vx
-            ellipse.cy += ellipse.vy
-            margin2 = 10
-            if ellipse.cx < margin2:
-                ellipse.cx = margin2
-                ellipse.vx = abs(ellipse.vx) * float(rng.uniform(0.5, 1.5))
-            elif ellipse.cx > W - margin2:
-                ellipse.cx = W - margin2
-                ellipse.vx = -abs(ellipse.vx) * float(rng.uniform(0.5, 1.5))
-            if ellipse.cy < margin2:
-                ellipse.cy = margin2
-                ellipse.vy = abs(ellipse.vy) * float(rng.uniform(0.5, 1.5))
-            elif ellipse.cy > H - margin2:
-                ellipse.cy = H - margin2
-                ellipse.vy = -abs(ellipse.vy) * float(rng.uniform(0.5, 1.5))
-            ellipse.angle += float(rng.uniform(-0.05, 0.05))
+        if noise_level > 0:
+            frame = frame + rng.normal(0, noise_level, frame.shape).astype(np.float32)
+        frames.append((np.clip(frame, 0, 1) * 255).astype(np.uint8))
 
-        frame_uint8 = (np.clip(frame, 0, 1) * 255).astype(np.uint8)
-        frames.append(frame_uint8)
-
-        for ellipse in ellipses:
-            x1 = max(0, int(ellipse.cx - ellipse.rx))
-            y1 = max(0, int(ellipse.cy - ellipse.ry))
-            w = min(int(ellipse.rx * 2), W - x1)
-            h = min(int(ellipse.ry * 2), H - y1)
-            gt_tracks.append({
+        # ── ground truth ────────────────────────────────────────────────────
+        for e in ellipses:
+            vis = float(vis_count[e.id] / full_area[e.id]) if full_area[e.id] > 0 else 0.0
+            x1, y1, w, h = _ellipse_bbox(e, frame_size)
+            visible = vis >= min_visibility
+            row = {
                 "frame": frame_idx + 1,
-                "id": ellipse.id,
-                "bb_left": x1,
-                "bb_top": y1,
-                "bb_width": w,
-                "bb_height": h,
-                "conf": 1.0,
-            })
-            true_boxes.append({
-                "frame": frame_idx + 1,
-                "id": ellipse.id,
-                "bb_left": x1,
-                "bb_top": y1,
-                "bb_width": w,
-                "bb_height": h,
-                "conf": 1.0,
-            })
+                "id": e.id,
+                "bb_left": x1, "bb_top": y1, "bb_width": w, "bb_height": h,
+                "conf": 1.0 if visible else 0.0,
+                "visibility": vis,
+            }
+            gt_tracks.append(row)
+            if visible:
+                true_boxes.append(dict(row))
+            if scripted and e.id == target.id:
+                target_vis.append(vis)
 
-    params = {
+        # ── movimento (usado no próximo quadro) ─────────────────────────────
+        for e in ellipses:
+            if scripted and e.id == target.id:
+                continue  # o alvo segue o roteiro relativo ao oclusor
+            e.cx += e.vx
+            e.cy += e.vy
+            e.cx, e.vx = _reflect(e.cx, e.rx + margin, W - e.rx - margin, e.vx)
+            e.cy, e.vy = _reflect(e.cy, e.ry + margin, H - e.ry - margin, e.vy)
+            e.angle += float(rng.uniform(-0.05, 0.05))
+
+    params: dict[str, Any] = {
         "num_frames": num_frames,
         "frame_size": frame_size,
         "n_objects": n_objects,
         "velocity_scale": velocity_scale,
-        "occlusion_duration": occlusion_duration,
-        "occlusion_start": occlusion_start,
-        "occlusion_ellipse_id": occlusion_ellipse.id,
-        "covering_ellipse_id": covering_ellipse.id,
-        "seed_offset": seed_offset,
+        "occlusion_duration": N,
+        "noise_level": noise_level,
+        "contrast_scale": contrast_scale,
+        "min_visibility": min_visibility,
+        "occlusion_ellipse_id": target.id if scripted else None,
+        "covering_ellipse_id": occluder.id if scripted else None,
+        "occlusion_start": start + 1 if scripted else None,   # 1º quadro escondido (1-based)
+        "target_visibility": target_vis,
+        "hidden_frames": (
+            [i + 1 for i, v in enumerate(target_vis) if v < HIDDEN_VISIBILITY] if scripted else []
+        ),
     }
-
     return SyntheticSequence(
         frames=frames,
         gt_tracks=gt_tracks,
@@ -253,13 +297,24 @@ def generate_synthetic_sequence(
         num_frames=num_frames,
         frame_size=frame_size,
         n_objects=n_objects,
-        occlusion_durations=occlusion_durations,
-        detections=None,
+        occlusion_durations=[N],
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Simulador de detector
+# ─────────────────────────────────────────────────────────────────────────────
 class SimulatedDetector:
-    """Simula um detector imperfeito sobre as caixas verdadeiras."""
+    """Simula um detector imperfeito a partir das caixas verdadeiras.
+
+    - ``drop_rate``: probabilidade de descartar cada caixa (falso negativo).
+    - ``noise_std``: desvio-padrão (px) do ruído nas coordenadas; left/top usam
+      ``noise_std`` e largura/altura ``0.3 * noise_std``.
+    - ``fp_rate``: média de falsos positivos por quadro (Poisson).
+
+    Cada detecção devolvida traz ``id = -1`` (o detector não conhece identidades),
+    ``src_id`` (id GT de origem, ``-1`` para falso positivo) e ``is_fp``.
+    """
 
     def __init__(
         self,
@@ -278,61 +333,52 @@ class SimulatedDetector:
         self,
         true_boxes: list[dict[str, Any]],
         frame_size: int,
+        num_frames: int | None = None,
     ) -> list[dict[str, Any]]:
-        detections: list[dict[str, Any]] = []
+        """Estraga as caixas. Se ``num_frames`` for dado, falsos positivos também
+        aparecem em quadros sem nenhuma caixa verdadeira."""
         by_frame: dict[int, list[dict[str, Any]]] = {}
         for tb in true_boxes:
-            f = tb["frame"]
-            if f not in by_frame:
-                by_frame[f] = []
-            by_frame[f].append(tb)
+            by_frame.setdefault(tb["frame"], []).append(tb)
+        frames = range(1, num_frames + 1) if num_frames else sorted(by_frame)
 
-        for frame, boxes in by_frame.items():
-            for tb in boxes:
+        detections: list[dict[str, Any]] = []
+        for frame in frames:
+            for tb in by_frame.get(frame, []):
                 if self.rng.random() < self.drop_rate:
                     continue
-                noise_x = self.rng.normal(0, self.noise_std)
-                noise_y = self.rng.normal(0, self.noise_std)
-                noise_w = self.rng.normal(0, self.noise_std * 0.3)
-                noise_h = self.rng.normal(0, self.noise_std * 0.3)
+                nx, ny = self.rng.normal(0, self.noise_std, 2)
+                nw, nh = self.rng.normal(0, self.noise_std * 0.3, 2)
 
-                new_left = max(0, tb["bb_left"] + noise_x)
-                new_top = max(0, tb["bb_top"] + noise_y)
-                new_w = max(2, tb["bb_width"] + noise_w)
-                new_h = max(2, tb["bb_height"] + noise_h)
-                new_w = min(new_w, frame_size - new_left)
-                new_h = min(new_h, frame_size - new_top)
-                conf = max(0.1, 1.0 - abs(noise_x) / frame_size - abs(noise_y) / frame_size)
+                left = float(np.clip(tb["bb_left"] + nx, 0, frame_size - 2))
+                top = float(np.clip(tb["bb_top"] + ny, 0, frame_size - 2))
+                w = float(min(max(2.0, tb["bb_width"] + nw), frame_size - left))
+                h = float(min(max(2.0, tb["bb_height"] + nh), frame_size - top))
+                conf = max(0.1, 1.0 - abs(nx) / frame_size - abs(ny) / frame_size)
 
                 detections.append({
-                    "frame": frame,
-                    "id": -1,
-                    "bb_left": new_left,
-                    "bb_top": new_top,
-                    "bb_width": new_w,
-                    "bb_height": new_h,
+                    "frame": frame, "id": -1, "src_id": tb["id"], "is_fp": False,
+                    "bb_left": left, "bb_top": top, "bb_width": w, "bb_height": h,
                     "conf": conf,
                 })
 
-            n_fp = int(self.rng.poisson(self.fp_rate))
-            for _ in range(n_fp):
-                fp_left = int(self.rng.integers(0, frame_size - 10))
-                fp_top = int(self.rng.integers(0, frame_size - 10))
+            for _ in range(int(self.rng.poisson(self.fp_rate))):
                 fp_w = int(self.rng.integers(5, 20))
                 fp_h = int(self.rng.integers(5, 20))
                 detections.append({
-                    "frame": frame,
-                    "id": -1,
-                    "bb_left": fp_left,
-                    "bb_top": fp_top,
-                    "bb_width": fp_w,
-                    "bb_height": fp_h,
+                    "frame": frame, "id": -1, "src_id": -1, "is_fp": True,
+                    "bb_left": int(self.rng.integers(0, frame_size - fp_w)),
+                    "bb_top": int(self.rng.integers(0, frame_size - fp_h)),
+                    "bb_width": fp_w, "bb_height": fp_h,
                     "conf": float(self.rng.uniform(0.1, 0.4)),
                 })
 
         return detections
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Dataset / DataLoader
+# ─────────────────────────────────────────────────────────────────────────────
 class SyntheticVideoDataset(Dataset):
     """Dataset PyTorch de sequências sintéticas para o PA2."""
 
@@ -357,21 +403,10 @@ class SyntheticVideoDataset(Dataset):
         self.n_sequences = n_sequences
         self.num_frames = num_frames
         self.frame_size = frame_size
-        self.n_objects_min = n_objects_min
-        self.n_objects_max = n_objects_max
-        self.velocity_scale = velocity_scale
-        self.occlusion_duration_min = occlusion_duration_min
-        self.occlusion_duration_max = occlusion_duration_max
-        self.noise_level = noise_level
-        self.contrast_scale = contrast_scale
-        self.detector_drop_rate = detector_drop_rate
-        self.detector_noise = detector_noise
-        self.detector_fp_rate = detector_fp_rate
 
         set_seed(seed)
         rng = np.random.default_rng(seed)
 
-        self.sequences: list[SyntheticSequence] = []
         self.simulator = SimulatedDetector(
             drop_rate=detector_drop_rate,
             noise_std=detector_noise,
@@ -379,35 +414,19 @@ class SyntheticVideoDataset(Dataset):
             rng=np.random.default_rng(seed + 999),
         )
 
+        self.sequences: list[SyntheticSequence] = []
         for i in range(n_sequences):
-            n_obj = int(rng.integers(n_objects_min, n_objects_max + 1))
-            oc_dur = int(rng.integers(occlusion_duration_min, occlusion_duration_max + 1))
-            vel_scale = velocity_scale * float(rng.uniform(0.5, 1.5))
-
             seq = generate_synthetic_sequence(
                 rng=rng,
                 num_frames=num_frames,
                 frame_size=frame_size,
-                n_objects=n_obj,
-                velocity_scale=vel_scale,
-                occlusion_duration=oc_dur,
-                seed_offset=i * 1000,
+                n_objects=int(rng.integers(n_objects_min, n_objects_max + 1)),
+                velocity_scale=velocity_scale * float(rng.uniform(0.5, 1.5)),
+                occlusion_duration=int(rng.integers(occlusion_duration_min, occlusion_duration_max + 1)),
+                noise_level=noise_level,
+                contrast_scale=contrast_scale,
             )
-
-            if noise_level > 0:
-                for j in range(len(seq.frames)):
-                    noise = rng.normal(0, noise_level, seq.frames[j].shape).astype(np.float32)
-                    seq.frames[j] = np.clip(seq.frames[j].astype(np.float32) + noise, 0, 255).astype(np.uint8)
-
-            if contrast_scale != 1.0:
-                for j in range(len(seq.frames)):
-                    mean = seq.frames[j].mean()
-                    seq.frames[j] = np.clip(
-                        (seq.frames[j].astype(np.float32) - mean) * contrast_scale + mean,
-                        0, 255
-                    ).astype(np.uint8)
-
-            seq.detections = self.simulator.detect(seq.true_boxes, frame_size)
+            seq.detections = self.simulator.detect(seq.true_boxes, frame_size, num_frames)
             self.sequences.append(seq)
 
     def __len__(self) -> int:
@@ -422,7 +441,7 @@ class SyntheticVideoDataset(Dataset):
         return {
             "frames": frames_tensor,
             "gt_tracks": seq.gt_tracks,
-            "detections": seq.detections or seq.true_boxes,
+            "detections": seq.detections if seq.detections is not None else seq.true_boxes,
             "sequence_id": idx,
             "params": seq.params,
             "num_frames": seq.num_frames,
@@ -450,7 +469,7 @@ def make_synthetic_loader(
     seed: int = 42,
     split: str = "train",
 ) -> DataLoader:
-    """Cria um DataLoader para o dataset sintético."""
+    """Cria um DataLoader para o dataset sintético (uma sequência por item)."""
     ds = SyntheticVideoDataset(
         n_sequences=n_sequences,
         num_frames=num_frames,

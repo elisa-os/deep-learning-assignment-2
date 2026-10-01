@@ -93,7 +93,7 @@ class AblationConfig:
 @dataclass
 class Config:
     seed: int = 42
-    output_dir: str = "pa2/outputs"
+    output_dir: str = "outputs"
     parte: Optional[int] = None
     mode_tag: str = "parte0"
     synthetic: SyntheticConfig = field(default_factory=SyntheticConfig)
@@ -151,10 +151,9 @@ def load_config(
         raw: dict = yaml.safe_load(f) or {}
 
     seed = raw.get("seed", 42)
+    # Caminhos relativos do YAML valem a partir do diretório de execução (raiz do repo).
     out_dir_raw = raw.get("output_dir", "outputs")
     out_dir_path = Path(out_dir_raw)
-    if not out_dir_path.is_absolute():
-        out_dir_path = path.parent / out_dir_path
 
     if parte_int is not None:
         parte_key = f"parte{parte_int}"
@@ -186,8 +185,6 @@ def load_config(
         out_dir_raw = parte_section.get("output_dir", out_dir_raw)
         if out_dir_raw:
             out_dir_path = Path(out_dir_raw)
-            if not out_dir_path.is_absolute():
-                out_dir_path = path.parent / out_dir_path
     else:
         syn_raw = {}
         data_raw = {}
@@ -200,8 +197,6 @@ def load_config(
         if "output_dir" in raw:
             out_dir_raw = raw["output_dir"]
             out_dir_path = Path(out_dir_raw)
-            if not out_dir_path.is_absolute():
-                out_dir_path = path.parent / out_dir_path
 
     # Detector source é campo de nível superior
     detector_source = raw.get("detector_source", "FRCNN")

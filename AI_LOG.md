@@ -97,3 +97,17 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
 - **Validação / Decisões Humanas:**
   - Revisão das seções de ambiente, download, comandos de treino/avaliação para garantir que estão corretas e completas
   - Revisão do AI_LOG para garantir que os episódios estão documentados de forma concisa e factual
+
+---
+
+## Episódio 6: Revisão crítica e correção da Parte 0
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Antes de começar a Parte 1, pedimos uma revisão da Parte 0. O relatório anterior dava a Parte 0 como concluída, mas havia sinais de erro: IDF1 = 1.0 no caso (b) (troca de identidades), baseline fácil em 0.67 e detecções iguais ao GT.
+- **Como a IA auxiliou:**
+  - Rodou o pipeline, abriu as figuras e leu o código. Diagnosticou: (1) o IDF1 contava identidades, não caixas, e por isso não penalizava a troca do caso (b); (2) a "oclusão" era um hack (a elipse alvo deixava de ser desenhada) e a figura mostrava o alvo visível dentro da janela de oclusão; (3) o detector "perfeito" enxergava objetos escondidos, então o sweep não media oclusão; (4) o simulador de detector nunca era testado com erro ligado; (5) o CSV de métricas tinha valores fixos (1.0); (6) arquivos fora do lugar.
+  - Reescreveu `metrics/tracking.py` (IDF1 em caixas com Hungarian; ID switches e fragmentações com matching estilo CLEAR-MOT), o gerador (pintura em ordem de profundidade, visibilidade medida por pixel, oclusão roteirizada de N quadros, ruído e contraste) e `part0.py` com asserts. Criou `tests/` e `pa2/metrics/cases.py`.
+- **Validação / Decisões Humanas:**
+  - Os valores esperados dos casos (b) e (c) (IDF1 = 2/3 e 156/177) foram derivados à mão a partir das contagens de caixas (ver docstring de `pa2/metrics/cases.py`) e só depois comparados com a saída do código. Conferimos as figuras de oclusão e a varredura.

@@ -29,8 +29,6 @@ dependencies = [
 
 [project.scripts]
 pa2 = "pa2.main:main"
-pa2-part0 = "pa2.part0:main"
-pa2-ablation = "pa2.ablation:main"
 
 [tool.uv.build-backend]
 module-root = "."
@@ -46,3 +44,8 @@ torchvision = { index = "pytorch-cu118" }
 name = "pytorch-cu118"
 url = "https://download.pytorch.org/whl/cu118"
 explicit = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

@@ -33,7 +33,7 @@ parte0:
 # ── Parte 1 — Baseline por quadro ─────────────────────────
 parte1:
   synthetic: false
-  data_dir: pa2/data/MOT17
+  data_dir: data/MOT17
   sequence_split:
     train: []
     val: []
@@ -55,7 +55,7 @@ parte1:
 # ── Parte 2 — Trilha A: RNN como modelo de movimento ─────
 parte2:
   synthetic: false
-  data_dir: pa2/data/MOT17
+  data_dir: data/MOT17
   sequence_split:
     train: []
     val: []
@@ -87,7 +87,7 @@ parte2:
 # ── Parte 3 — Ablação: Eixo 2 (regime de treino) ─────────
 parte3:
   synthetic: false
-  data_dir: pa2/data/MOT17
+  data_dir: data/MOT17
   sequence_split:
     train: []
     val: []

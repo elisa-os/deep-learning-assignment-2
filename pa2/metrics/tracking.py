@@ -1,17 +1,37 @@
-"""Métricas de tracking para o PA2 — implementação própria.
+"""Métricas de tracking para o PA2 — implementação própria (sem motmetrics/TrackEval).
 
 Implementa:
-- compute_idf1: IDF1 (Identity F1) como definido no MOTChallenge
-- count_id_switches: número de trocas de identidade ao longo da sequência
-- count_fragmentations: número de fragmentações de tracks
-- match_global: atribuição global um-para-um entre tracks previstos e GT
+- compute_idf1: IDF1 (Ristani et al., 2016), contado em detecções (caixas por quadro)
+- count_id_switches / count_fragmentations: matching quadro a quadro estilo CLEAR-MOT
+- match_global: atribuição global um-para-um entre trajetórias previstas e verdadeiras
+- evaluate_tracking_sequence: todas as métricas de uma sequência
 
-Referência: Reis et al., "IDF1: Identity F1 Score for Multi-Object Tracking",
-MOTChallenge benchmark evaluation metrics.
+Convenções
+----------
+Tracks são listas de dicts no formato MOT: ``frame, id, bb_left, bb_top, bb_width,
+bb_height`` (+ ``conf``). Internamente viram ``{frame: {id: caixa[4]}}``.
 
-NOTA: ID switches e fragmentações são contados com base no matching frame a
-frame (IoU entre caixa prevista e GT no frame), não no matching global.
-O matching global serve apenas para o IDF1.
+IDF1
+    Cada identidade (verdadeira ou prevista) é uma trajetória. Para um par (g, p),
+    ``IDTP(g, p)`` é o número de quadros em que ambos existem e IoU >= limiar. A
+    atribuição um-para-um que maximiza a soma de IDTP é obtida com Hungarian.
+    Com ``Ng``/``Np`` o total de caixas verdadeiras/previstas:
+
+        IDTP = soma dos IDTP dos pares atribuídos
+        IDFN = Ng - IDTP,  IDFP = Np - IDTP
+        IDF1 = 2*IDTP / (2*IDTP + IDFP + IDFN)
+
+ID switches / fragmentações (CLEAR-MOT)
+    A cada quadro, correspondências do quadro anterior que continuam válidas
+    (IoU >= limiar) são mantidas; o restante é casado por Hungarian sobre o IoU.
+    Um ID switch é contado quando uma identidade verdadeira passa a ser casada
+    com um id previsto diferente do último com que foi casada (mesmo após
+    lacunas). Uma fragmentação é uma transição "rastreada -> não rastreada ->
+    rastreada" dentro da vida da identidade verdadeira.
+
+Ground truth com ``conf == 0`` é ignorado por ``evaluate_tracking_sequence``
+(convenção do MOT17: caixas marcadas como "não considerar", p.ex. objetos
+totalmente ocluídos ou distratores).
 """
 
 from __future__ import annotations
@@ -20,428 +40,326 @@ from collections import defaultdict
 from typing import Any
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
+
+FrameDict = dict[int, dict[int, np.ndarray]]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Geometria
+# ─────────────────────────────────────────────────────────────────────────────
 def compute_iou(box_a: np.ndarray, box_b: np.ndarray) -> float:
     """IoU entre duas caixas no formato MOT: [bb_left, bb_top, bb_width, bb_height]."""
     xa, ya, wa, ha = box_a
     xb, yb, wb, hb = box_b
 
-    x1 = max(xa, xb)
-    y1 = max(ya, yb)
-    x2 = min(xa + wa, xb + wb)
-    y2 = min(ya + ha, yb + hb)
-
-    inter_w = max(0.0, x2 - x1)
-    inter_h = max(0.0, y2 - y1)
+    inter_w = max(0.0, min(xa + wa, xb + wb) - max(xa, xb))
+    inter_h = max(0.0, min(ya + ha, yb + hb) - max(ya, yb))
     inter = inter_w * inter_h
-
-    area_a = wa * ha
-    area_b = wb * hb
-    union = area_a + area_b - inter
-
+    union = wa * ha + wb * hb - inter
     return float(inter / union) if union > 0 else 0.0
 
 
-def _parse_tracks_to_frames(
-    tracks: list[dict[str, Any]],
-) -> tuple[dict[int, dict[int, np.ndarray]], int]:
-    """Converte lista de tracks MOT em dict {frame: {id: box}}."""
-    frames: dict[int, dict[int, np.ndarray]] = defaultdict(dict)
+def iou_matrix(boxes_a: np.ndarray, boxes_b: np.ndarray) -> np.ndarray:
+    """IoU vetorizado entre (N,4) e (M,4) caixas [left, top, w, h] -> (N,M)."""
+    a = np.asarray(boxes_a, dtype=np.float64).reshape(-1, 4)
+    b = np.asarray(boxes_b, dtype=np.float64).reshape(-1, 4)
+    if len(a) == 0 or len(b) == 0:
+        return np.zeros((len(a), len(b)))
+    ax2, ay2 = a[:, 0] + a[:, 2], a[:, 1] + a[:, 3]
+    bx2, by2 = b[:, 0] + b[:, 2], b[:, 1] + b[:, 3]
+    iw = np.clip(np.minimum(ax2[:, None], bx2[None]) - np.maximum(a[:, 0:1], b[None, :, 0]), 0, None)
+    ih = np.clip(np.minimum(ay2[:, None], by2[None]) - np.maximum(a[:, 1:2], b[None, :, 1]), 0, None)
+    inter = iw * ih
+    union = (a[:, 2] * a[:, 3])[:, None] + (b[:, 2] * b[:, 3])[None] - inter
+    return np.where(union > 0, inter / np.maximum(union, 1e-12), 0.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Conversão de formato
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_tracks_to_frames(tracks: list[dict[str, Any]]) -> tuple[FrameDict, int]:
+    """Converte lista de tracks MOT em ``{frame: {id: caixa}}`` e devolve o maior quadro."""
+    frames: FrameDict = defaultdict(dict)
     max_frame = 0
     for det in tracks:
         frame = int(det["frame"])
-        obj_id = int(det["id"])
-        box = np.array([
-            float(det["bb_left"]),
-            float(det["bb_top"]),
-            float(det["bb_width"]),
-            float(det["bb_height"]),
-        ], dtype=np.float64)
-        frames[frame][obj_id] = box
+        frames[frame][int(det["id"])] = np.array(
+            [det["bb_left"], det["bb_top"], det["bb_width"], det["bb_height"]],
+            dtype=np.float64,
+        )
         max_frame = max(max_frame, frame)
-
-    full_frames: dict[int, dict[int, np.ndarray]] = {}
-    for f in range(1, max_frame + 1):
-        full_frames[f] = frames.get(f, {})
-
-    return full_frames, max_frame
+    return dict(frames), max_frame
 
 
-def match_frame_by_iou(
-    pred_frame: dict[int, np.ndarray],
-    gt_frame: dict[int, np.ndarray],
-    iou_threshold: float = 0.3,
-) -> dict[int, int]:
-    """Faz matching frame a frame entre predições e GT por IoU guloso decrescente.
+def _frame_range(tracks_pred: FrameDict, tracks_gt: FrameDict, num_frames: int | None) -> list[int]:
+    """Quadros a percorrer: união dos quadros presentes (ou 1..num_frames se informado)."""
+    if num_frames is not None:
+        return list(range(1, num_frames + 1))
+    return sorted(set(tracks_pred) | set(tracks_gt))
 
-    Retorna dict {gt_id → pred_id} para este frame.
-    """
-    gt_ids = sorted(gt_frame.keys())
-    pred_ids = sorted(pred_frame.keys())
 
-    # Calcula matriz de IoU
-    iou_mat = np.zeros((len(pred_ids), len(gt_ids)))
-    for i, pid in enumerate(pred_ids):
-        for j, gid in enumerate(gt_ids):
-            iou_mat[i, j] = compute_iou(pred_frame[pid], gt_frame[gid])
+def _stack(frame: dict[int, np.ndarray]) -> tuple[list[int], np.ndarray]:
+    ids = sorted(frame)
+    boxes = np.stack([frame[i] for i in ids]) if ids else np.zeros((0, 4))
+    return ids, boxes
 
-    # Ordena pares por IoU decrescente
-    pairs = []
-    for i in range(len(pred_ids)):
-        for j in range(len(gt_ids)):
-            if iou_mat[i, j] >= iou_threshold:
-                pairs.append((iou_mat[i, j], i, j))
-    pairs.sort(reverse=True, key=lambda x: x[0])
 
-    matched_pred = set()
-    matched_gt = set()
-    gt_to_pred: dict[int, int] = {}
+# ─────────────────────────────────────────────────────────────────────────────
+# Matching global (IDF1)
+# ─────────────────────────────────────────────────────────────────────────────
+def _idtp_matrix(
+    tracks_pred: FrameDict,
+    tracks_gt: FrameDict,
+    iou_threshold: float,
+    frames: list[int],
+) -> tuple[list[int], list[int], np.ndarray]:
+    """Matriz (pred x gt) com o número de quadros em que o par coincide (IoU >= limiar)."""
+    pred_ids = sorted({i for f in frames for i in tracks_pred.get(f, {})})
+    gt_ids = sorted({i for f in frames for i in tracks_gt.get(f, {})})
+    p_idx = {pid: k for k, pid in enumerate(pred_ids)}
+    g_idx = {gid: k for k, gid in enumerate(gt_ids)}
+    counts = np.zeros((len(pred_ids), len(gt_ids)), dtype=np.int64)
 
-    for iou_val, i, j in pairs:
-        pid = pred_ids[i]
-        gid = gt_ids[j]
-        if pid not in matched_pred and gid not in matched_gt:
-            gt_to_pred[gid] = pid
-            matched_pred.add(pid)
-            matched_gt.add(gid)
-
-    return gt_to_pred
+    for f in frames:
+        pf, gf = tracks_pred.get(f, {}), tracks_gt.get(f, {})
+        if not pf or not gf:
+            continue
+        p_list, p_boxes = _stack(pf)
+        g_list, g_boxes = _stack(gf)
+        hit = iou_matrix(p_boxes, g_boxes) >= iou_threshold
+        for a, b in zip(*np.nonzero(hit)):
+            counts[p_idx[p_list[a]], g_idx[g_list[b]]] += 1
+    return pred_ids, gt_ids, counts
 
 
 def match_global(
-    tracks_pred: dict[int, dict[int, np.ndarray]],
-    tracks_gt: dict[int, dict[int, np.ndarray]],
-    iou_threshold: float = 0.3,
+    tracks_pred: FrameDict,
+    tracks_gt: FrameDict,
+    iou_threshold: float = 0.5,
     num_frames: int | None = None,
-) -> tuple[
-    dict[int, int],
-    set[int],
-    set[int],
-]:
+) -> tuple[dict[int, int], set[int], set[int]]:
     """Atribuição global um-para-um entre identidades previstas e verdadeiras.
 
-    Usa Hungarian (assignment ótimo) para maximizar a soma de IoUs ao longo
-    de toda a sequência, respeitando o limiar de IoU.
+    Maximiza o número total de quadros coincidentes (IDTP) com Hungarian.
+    Retorna ``(pred_id -> gt_id, preds_sem_par, gts_sem_par)``.
     """
-    if num_frames is None:
-        all_frames = set(tracks_pred.keys()) | set(tracks_gt.keys())
-        num_frames = max(all_frames) if all_frames else 0
-
-    all_pred_ids: set[int] = set()
-    all_gt_ids: set[int] = set()
-
-    for f in range(1, num_frames + 1):
-        all_pred_ids.update(tracks_pred.get(f, {}).keys())
-        all_gt_ids.update(tracks_gt.get(f, {}).keys())
-
-    pred_ids = sorted(all_pred_ids)
-    gt_ids = sorted(all_gt_ids)
-
+    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
+    pred_ids, gt_ids, counts = _idtp_matrix(tracks_pred, tracks_gt, iou_threshold, frames)
     if not pred_ids or not gt_ids:
         return {}, set(pred_ids), set(gt_ids)
 
-    iou_matrix = np.zeros((len(pred_ids), len(gt_ids)))
-
-    for f in range(1, num_frames + 1):
-        pred_frame = tracks_pred.get(f, {})
-        gt_frame = tracks_gt.get(f, {})
-        for i, pid in enumerate(pred_ids):
-            if pid not in pred_frame:
-                continue
-            box_p = pred_frame[pid]
-            for j, gid in enumerate(gt_ids):
-                if gid not in gt_frame:
-                    continue
-                box_g = gt_frame[gid]
-                iou_matrix[i, j] += compute_iou(box_p, box_g)
-
-    from scipy.optimize import linear_sum_assignment
-
-    row_ind, col_ind = linear_sum_assignment(-iou_matrix)
-
-    pred_to_gt: dict[int, int] = {}
-    for i, j in zip(row_ind, col_ind):
-        if iou_matrix[i, j] >= iou_threshold * num_frames:
-            pred_to_gt[pred_ids[i]] = gt_ids[j]
-
-    matched_pred = set(pred_to_gt.keys())
-    unmatched_pred = set(pred_ids) - matched_pred
-    unmatched_gt = set(gt_ids) - set(pred_to_gt.values())
-
-    return pred_to_gt, unmatched_pred, unmatched_gt
-
-
-def count_id_switches(
-    tracks_pred: dict[int, dict[int, np.ndarray]],
-    tracks_gt: dict[int, dict[int, np.ndarray]],
-    iou_threshold: float = 0.3,
-    num_frames: int | None = None,
-) -> int:
-    """Conta o número de trocas de identidade (ID switches) na sequência.
-
-    Um ID switch ocorre quando um ground truth ID é rastreado por um pred ID
-    em um frame, e em um frame subsequente é rastreado por um pred ID diferente
-    (mesmo que caixa confere por IoU).
-
-    Mantém mapeamento persistente por GT identity: se um GT não aparece em
-    um frame, o mapeamento anterior é preservado. Quando o GT reaparece com
-    um pred_id diferente, conta-se um switch.
-    """
-    if num_frames is None:
-        all_frames = set(tracks_pred.keys()) | set(tracks_gt.keys())
-        num_frames = max(all_frames) if all_frames else 0
-
-    last_pred_id_for_gt: dict[int, int] = {}
-    switches = 0
-
-    for f in range(1, num_frames + 1):
-        pred_frame = tracks_pred.get(f, {})
-        gt_frame = tracks_gt.get(f, {})
-
-        gt_to_pred = match_frame_by_iou(pred_frame, gt_frame, iou_threshold)
-
-        for gt_id, pred_id in gt_to_pred.items():
-            if gt_id in last_pred_id_for_gt and last_pred_id_for_gt[gt_id] != pred_id:
-                switches += 1
-            last_pred_id_for_gt[gt_id] = pred_id
-
-        # GTs que não aparecem neste frame mantêm o mapeamento anterior
-        # (não fazemos nada — last_pred_id_for_gt preserva o valor antigo)
-
-    return switches
-
-
-def count_fragmentations(
-    tracks_pred: dict[int, dict[int, np.ndarray]],
-    tracks_gt: dict[int, dict[int, np.ndarray]],
-    iou_threshold: float = 0.3,
-    num_frames: int | None = None,
-) -> int:
-    """Conta o número de fragmentações.
-
-    Uma fragmentação ocorre quando um ground truth ID deixa de ser rastreado
-    por um pred_id (perde o matching IoU ou muda de pred_id) por pelo menos
-    1 frame, e depois volta a ser rastreado (por qualquer pred_id).
-
-    Usa o matching frame a frame entre predições e GT para determinar
-    se um GT está sendo rastreado ou não em cada frame.
-    """
-    if num_frames is None:
-        all_frames = set(tracks_pred.keys()) | set(tracks_gt.keys())
-        num_frames = max(all_frames) if all_frames else 0
-
-    gt_tracked_frames: dict[int, set[int]] = defaultdict(set)
-    for f in range(1, num_frames + 1):
-        pred_frame = tracks_pred.get(f, {})
-        gt_frame = tracks_gt.get(f, {})
-
-        gt_to_pred = match_frame_by_iou(pred_frame, gt_frame, iou_threshold)
-
-        for gt_id in gt_frame.keys():
-            if gt_id in gt_to_pred:
-                gt_tracked_frames[gt_id].add(f)
-
-    fragmentations = 0
-    for gt_id, present_frames in gt_tracked_frames.items():
-        sorted_frames = sorted(present_frames)
-        if len(sorted_frames) < 2:
-            continue
-        for i in range(len(sorted_frames) - 1):
-            if sorted_frames[i + 1] - sorted_frames[i] > 1:
-                fragmentations += 1
-
-    return fragmentations
+    rows, cols = linear_sum_assignment(-counts)
+    pred_to_gt = {pred_ids[i]: gt_ids[j] for i, j in zip(rows, cols) if counts[i, j] > 0}
+    return (
+        pred_to_gt,
+        set(pred_ids) - set(pred_to_gt),
+        set(gt_ids) - set(pred_to_gt.values()),
+    )
 
 
 def compute_idf1(
-    tracks_pred: dict[int, dict[int, np.ndarray]],
-    tracks_gt: dict[int, dict[int, np.ndarray]],
+    tracks_pred: FrameDict,
+    tracks_gt: FrameDict,
     pred_to_gt: dict[int, int] | None = None,
-    iou_threshold: float = 0.3,
+    iou_threshold: float = 0.5,
     num_frames: int | None = None,
-) -> tuple[float, dict[str, int]]:
-    """Calcula o IDF1 (Identity F1 Score).
+) -> tuple[float, dict[str, int | float]]:
+    """IDF1 = 2*IDTP / (2*IDTP + IDFP + IDFN), com contagens em caixas.
 
-    IDF1 = IDTP / (IDTP + 0.5 * (IDFP + IDFN))
-    Usa matching global (Hungarian) para atribuição um-para-um.
+    Se ``pred_to_gt`` for dado, usa essa atribuição em vez de recalculá-la.
     """
-    if num_frames is None:
-        all_frames = set(tracks_pred.keys()) | set(tracks_gt.keys())
-        num_frames = max(all_frames) if all_frames else 0
+    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
+    pred_ids, gt_ids, counts = _idtp_matrix(tracks_pred, tracks_gt, iou_threshold, frames)
 
-    if pred_to_gt is None:
-        pred_to_gt, unmatched_pred, unmatched_gt = match_global(
-            tracks_pred, tracks_gt, iou_threshold, num_frames
-        )
-    else:
-        unmatched_pred = set()
-        unmatched_gt = set()
-
-    all_gt_ids: set[int] = set()
-    all_pred_ids: set[int] = set()
-    for f in range(1, num_frames + 1):
-        all_gt_ids.update(tracks_gt.get(f, {}).keys())
-        all_pred_ids.update(tracks_pred.get(f, {}).keys())
-
-    gt_frames_present: dict[int, set[int]] = defaultdict(set)
-    for gt_id in all_gt_ids:
-        for f in range(1, num_frames + 1):
-            if gt_id in tracks_gt.get(f, {}):
-                gt_frames_present[gt_id].add(f)
-
-    pred_frames_present: dict[int, set[int]] = defaultdict(set)
-    for pid in all_pred_ids:
-        for f in range(1, num_frames + 1):
-            if pid in tracks_pred.get(f, {}):
-                pred_frames_present[pid].add(f)
-
-    gt_to_pred_frames: dict[int, dict[int, set[int]]] = defaultdict(lambda: defaultdict(set))
-    for f in range(1, num_frames + 1):
-        pred_frame = tracks_pred.get(f, {})
-        gt_frame = tracks_gt.get(f, {})
-        for pid, box_p in pred_frame.items():
-            gt_id = pred_to_gt.get(pid)
-            if gt_id is not None and gt_id in gt_frame:
-                gt_to_pred_frames[gt_id][pid].add(f)
+    n_pred_boxes = sum(len(tracks_pred.get(f, {})) for f in frames)
+    n_gt_boxes = sum(len(tracks_gt.get(f, {})) for f in frames)
 
     idtp = 0
-    idfn = 0
-
-    for gt_id in all_gt_ids:
-        total_gt_frames = len(gt_frames_present[gt_id])
-        if total_gt_frames == 0:
-            idfn += 1
-            continue
-
-        best_frames = 0
-        for pid, frames in gt_to_pred_frames[gt_id].items():
-            if len(frames) > best_frames:
-                best_frames = len(frames)
-
-        if best_frames > total_gt_frames / 2:
-            idtp += 1
+    if pred_ids and gt_ids:
+        if pred_to_gt is None:
+            rows, cols = linear_sum_assignment(-counts)
+            idtp = int(counts[rows, cols].sum())
         else:
-            idfn += 1
+            p_idx = {pid: k for k, pid in enumerate(pred_ids)}
+            g_idx = {gid: k for k, gid in enumerate(gt_ids)}
+            idtp = int(sum(
+                counts[p_idx[p], g_idx[g]]
+                for p, g in pred_to_gt.items() if p in p_idx and g in g_idx
+            ))
 
-    idtp_pred_ids: set[int] = set()
-    for gt_id in all_gt_ids:
-        total_gt_frames = len(gt_frames_present[gt_id])
-        for pid, frames in gt_to_pred_frames[gt_id].items():
-            if len(frames) > total_gt_frames / 2:
-                idtp_pred_ids.add(pid)
-
-    idfp = 0
-    for pid in all_pred_ids:
-        if pid not in idtp_pred_ids and pid not in set(pred_to_gt.keys()):
-            idfp += 1
-
-    denom = idtp + 0.5 * (idfp + idfn)
-    idf1 = float(idtp / denom) if denom > 0 else 0.0
+    idfn = n_gt_boxes - idtp
+    idfp = n_pred_boxes - idtp
+    denom = 2 * idtp + idfp + idfn
+    idf1 = float(2 * idtp / denom) if denom > 0 else 0.0
+    idp = float(idtp / n_pred_boxes) if n_pred_boxes else 0.0
+    idr = float(idtp / n_gt_boxes) if n_gt_boxes else 0.0
 
     return idf1, {
         "IDTP": idtp,
         "IDFP": idfp,
         "IDFN": idfn,
-        "n_gt_ids": len(all_gt_ids),
-        "n_pred_ids": len(all_pred_ids),
+        "IDP": idp,
+        "IDR": idr,
+        "n_gt_ids": len(gt_ids),
+        "n_pred_ids": len(pred_ids),
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Matching quadro a quadro (CLEAR-MOT): ID switches, fragmentações, FP/FN
+# ─────────────────────────────────────────────────────────────────────────────
+def _clear_match(
+    tracks_pred: FrameDict,
+    tracks_gt: FrameDict,
+    iou_threshold: float,
+    frames: list[int],
+) -> dict[str, Any]:
+    """Percorre os quadros fazendo matching com continuidade (estilo CLEAR-MOT)."""
+    last_pred_for_gt: dict[int, int] = {}   # último pred casado por GT (persiste em lacunas)
+    prev_match: dict[int, int] = {}          # gt -> pred casados no quadro anterior
+    tracked_seq: dict[int, list[bool]] = defaultdict(list)  # por GT: rastreado em cada quadro de vida
+    matches_per_frame: dict[int, dict[int, int]] = {}
+    switches = fp = fn = tp = 0
+
+    for f in frames:
+        pf, gf = tracks_pred.get(f, {}), tracks_gt.get(f, {})
+        p_list, p_boxes = _stack(pf)
+        g_list, g_boxes = _stack(gf)
+        iou = iou_matrix(g_boxes, p_boxes)
+        g_pos = {g: k for k, g in enumerate(g_list)}
+        p_pos = {p: k for k, p in enumerate(p_list)}
+
+        match: dict[int, int] = {}
+        # 1) mantém correspondências do quadro anterior que continuam válidas
+        for g, p in prev_match.items():
+            if g in g_pos and p in p_pos and iou[g_pos[g], p_pos[p]] >= iou_threshold:
+                match[g] = p
+        # 2) Hungarian sobre o restante
+        free_g = [g for g in g_list if g not in match]
+        used_p = set(match.values())
+        free_p = [p for p in p_list if p not in used_p]
+        if free_g and free_p:
+            sub = np.array([[iou[g_pos[g], p_pos[p]] for p in free_p] for g in free_g])
+            sub = np.where(sub >= iou_threshold, sub, 0.0)
+            rows, cols = linear_sum_assignment(-sub)
+            for r, c in zip(rows, cols):
+                if sub[r, c] > 0:
+                    match[free_g[r]] = free_p[c]
+
+        for g, p in match.items():
+            if g in last_pred_for_gt and last_pred_for_gt[g] != p:
+                switches += 1
+            last_pred_for_gt[g] = p
+
+        tp += len(match)
+        fn += len(g_list) - len(match)
+        fp += len(p_list) - len(match)
+        for g in g_list:
+            tracked_seq[g].append(g in match)
+        matches_per_frame[f] = match
+        prev_match = match
+
+    fragmentations = 0
+    for seq in tracked_seq.values():
+        was_tracked = False
+        in_gap = False
+        for t in seq:
+            if t:
+                if in_gap:
+                    fragmentations += 1
+                    in_gap = False
+                was_tracked = True
+            elif was_tracked:
+                in_gap = True
+
+    return {
+        "id_switches": switches,
+        "fragmentations": fragmentations,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tracked_seq": tracked_seq,
+        "matches": matches_per_frame,
+    }
+
+
+def count_id_switches(
+    tracks_pred: FrameDict,
+    tracks_gt: FrameDict,
+    iou_threshold: float = 0.5,
+    num_frames: int | None = None,
+) -> int:
+    """Número de ID switches (ver docstring do módulo)."""
+    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
+    return int(_clear_match(tracks_pred, tracks_gt, iou_threshold, frames)["id_switches"])
+
+
+def count_fragmentations(
+    tracks_pred: FrameDict,
+    tracks_gt: FrameDict,
+    iou_threshold: float = 0.5,
+    num_frames: int | None = None,
+) -> int:
+    """Número de fragmentações (rastreado -> perdido -> rastreado, por identidade GT)."""
+    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
+    return int(_clear_match(tracks_pred, tracks_gt, iou_threshold, frames)["fragmentations"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Avaliação completa de uma sequência
+# ─────────────────────────────────────────────────────────────────────────────
 def evaluate_tracking_sequence(
     tracks_pred: list[dict[str, Any]],
     tracks_gt: list[dict[str, Any]],
-    iou_threshold: float = 0.3,
+    iou_threshold: float = 0.5,
 ) -> dict[str, Any]:
-    """Avalia uma sequência completa de tracking e retorna todas as métricas.
+    """Avalia uma sequência e devolve IDF1, ID switches, fragmentações, contagens etc.
 
-    Retorna um dict com as métricas.
+    GT com ``conf == 0`` é descartado antes da avaliação (convenção MOT17).
+    ``count_error`` é o erro de contagem de identidades únicas: |n_pred_ids - n_gt_ids|
+    (sinal em ``count_error_signed = n_pred_ids - n_gt_ids``).
     """
-    pred_frames, _n = _parse_tracks_to_frames(tracks_pred)
-    gt_frames, num_frames = _parse_tracks_to_frames(tracks_gt)
+    tracks_gt = [d for d in tracks_gt if d.get("conf", 1.0) > 0]
 
-    all_frames = set(pred_frames.keys()) | set(gt_frames.keys())
-    num_frames = max(all_frames) if all_frames else 0
+    pred_frames, _ = _parse_tracks_to_frames(tracks_pred)
+    gt_frames, _ = _parse_tracks_to_frames(tracks_gt)
+    frames = sorted(set(pred_frames) | set(gt_frames))
+    num_frames = max(frames) if frames else 0
 
-    id_switches = count_id_switches(pred_frames, gt_frames, iou_threshold, num_frames)
-    fragmentations = count_fragmentations(pred_frames, gt_frames, iou_threshold, num_frames)
+    clear = _clear_match(pred_frames, gt_frames, iou_threshold, frames)
+    pred_to_gt, _, _ = match_global(pred_frames, gt_frames, iou_threshold, num_frames or None)
+    idf1, det = compute_idf1(pred_frames, gt_frames, pred_to_gt, iou_threshold, num_frames or None)
 
-    pred_to_gt, _, _ = match_global(pred_frames, gt_frames, iou_threshold, num_frames)
-    idf1, id_details = compute_idf1(pred_frames, gt_frames, pred_to_gt, iou_threshold, num_frames)
+    n_gt_boxes = clear["tp"] + clear["fn"]
+    mota = 1.0 - (clear["fn"] + clear["fp"] + clear["id_switches"]) / n_gt_boxes if n_gt_boxes else 0.0
 
-    total_gt_detections = sum(len(gt_frames[f]) for f in range(1, num_frames + 1))
+    mostly_tracked = mostly_lost = 0
+    for seq in clear["tracked_seq"].values():
+        ratio = sum(seq) / len(seq)
+        mostly_tracked += ratio >= 0.8
+        mostly_lost += ratio < 0.2
+    n_gt = len(clear["tracked_seq"])
 
-    fp_count = 0
-    fn_count = 0
-    for f in range(1, num_frames + 1):
-        pred_frame = pred_frames.get(f, {})
-        gt_frame = gt_frames.get(f, {})
-
-        for pid, box_p in pred_frame.items():
-            matched = False
-            for gid, box_g in gt_frame.items():
-                if compute_iou(box_p, box_g) >= iou_threshold:
-                    # Verifica se este pred_id está associado a este gt_id no matching global
-                    if pred_to_gt.get(pid) == gid:
-                        matched = True
-                        break
-            if not matched:
-                fp_count += 1
-
-        for gid, box_g in gt_frame.items():
-            matched = False
-            for pid, box_p in pred_frame.items():
-                if compute_iou(box_p, box_g) >= iou_threshold:
-                    if pred_to_gt.get(pid) == gid:
-                        matched = True
-                        break
-            if not matched:
-                fn_count += 1
-
-    mota = 1.0 - (fn_count + fp_count + id_switches) / total_gt_detections if total_gt_detections > 0 else 0.0
-
-    n_gt_ids = len(set(d["id"] for d in tracks_gt))
-    n_pred_ids = len(set(d["id"] for d in tracks_pred))
-
-    # Mostly tracked / mostly lost
-    gt_tracked_frames: dict[int, int] = defaultdict(int)
-    for f in range(1, num_frames + 1):
-        pred_frame = pred_frames.get(f, {})
-        gt_frame = gt_frames.get(f, {})
-        for pid, box_p in pred_frame.items():
-            for gid, box_g in gt_frame.items():
-                if compute_iou(box_p, box_g) >= iou_threshold:
-                    if pred_to_gt.get(pid) == gid:
-                        gt_tracked_frames[gid] += 1
-
-    gt_total_frames: dict[int, int] = defaultdict(int)
-    for f in range(1, num_frames + 1):
-        for gid in gt_frames.get(f, {}):
-            gt_total_frames[gid] += 1
-
-    mostly_tracked = 0
-    mostly_lost = 0
-    for gid in gt_total_frames:
-        total = gt_total_frames[gid]
-        tracked = gt_tracked_frames.get(gid, 0)
-        if total > 0:
-            ratio = tracked / total
-            if ratio >= 0.8:
-                mostly_tracked += 1
-            elif ratio < 0.2:
-                mostly_lost += 1
-
+    n_gt_ids = det["n_gt_ids"]
+    n_pred_ids = det["n_pred_ids"]
     return {
         "idf1": idf1,
-        "id_switches": id_switches,
-        "fragmentations": fragmentations,
-        "n_gt_ids": len(gt_total_frames),
+        "idp": det["IDP"],
+        "idr": det["IDR"],
+        "id_switches": clear["id_switches"],
+        "fragmentations": clear["fragmentations"],
+        "n_gt_ids": n_gt_ids,
         "n_pred_ids": n_pred_ids,
-        "mostly_tracked": mostly_tracked / len(gt_total_frames) if gt_total_frames else 0.0,
-        "mostly_lost": mostly_lost / len(gt_total_frames) if gt_total_frames else 0.0,
+        "count_error": abs(n_pred_ids - n_gt_ids),
+        "count_error_signed": n_pred_ids - n_gt_ids,
+        "mostly_tracked": mostly_tracked / n_gt if n_gt else 0.0,
+        "mostly_lost": mostly_lost / n_gt if n_gt else 0.0,
         "num_frames": num_frames,
         "mota": mota,
-        "IDTP": id_details["IDTP"],
-        "IDFP": id_details["IDFP"],
-        "IDFN": id_details["IDFN"],
+        "IDTP": det["IDTP"],
+        "IDFP": det["IDFP"],
+        "IDFN": det["IDFN"],
+        "FP": clear["fp"],
+        "FN": clear["fn"],
     }
