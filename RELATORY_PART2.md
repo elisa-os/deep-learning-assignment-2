@@ -108,3 +108,48 @@ estado sem observação, que é exatamente o que o rastreador já faz. O limite 
 só geometria, sem aparência, o estado não sobrevive a mais de ~30 quadros e em multidão a
 costura fica ambígua; uma memória de aparência (Trilha B) permitiria costurar por similaridade
 de embeddings mesmo depois de buracos longos.
+
+## 6. Modelo final (decisão após a Parte 3)
+**Modelo final: `teacher_forcing_s42`** (GRU 64, treino só com observações, sem buracos simulados,
+20 épocas, checkpoint da última época). Cópia em `outputs/checkpoints/final_motion_rnn.pt`;
+avaliação em `outputs/final/`. **As seções 3 e 4 acima são do modelo inicial da Parte 2** (com
+buracos de treino e época escolhida pela validação), que continua em
+`outputs/checkpoints/parte2_motion_rnn.pt`.
+
+**Por quê.** A regra foi fixada antes de rodar a Parte 3: maior IDF1 médio de validação entre os
+regimes (checkpoint da seed 42). O teacher forcing empata no IDF1 com a receita da Parte 2
+(0,579 ± 0,003 contra 0,573 ± 0,010 em 3 seeds: **empate, não vitória**) e é melhor no
+rollout às cegas na validação (IoU 0,46 contra 0,41 em k = 10, nas 3 seeds). Os buracos
+simulados da Parte 2 não trouxeram ganho mensurável, e o modelo sem eles é mais simples.
+Ao citar desempenho, usar a média das 3 seeds da Parte 3; o número desta seed é o maior dos
+três e portanto levemente otimista.
+
+**Ressalva de protocolo.** Esse critério usou os vídeos de validação (09 e 13). O enunciado pede
+uma sequência "nunca vista" e o MOT17 não tem GT de teste, então os números de validação têm um
+viés a favor do modelo escolhido. A escolha é entre modelos praticamente empatados, o que limita
+o viés, mas não o elimina.
+
+**Resultado (mesma regra de associação para os três; `outputs/final/parte2_per_sequence.csv`):**
+| método | split | IDF1 | ID sw. | ids prev./verd. | sw/id |
+|---|---|---|---|---|---|
+| Parte 1 (caixa parada) | validação | 0,488 | 233 | 1,90 | 2,95 |
+| velocidade constante | validação | 0,534 | 109 | 2,04 | 1,71 |
+| **RNN final** | validação | **0,576** | 117 | **1,54** | 1,74 |
+| Parte 1 | treino | 0,564 | 243 | 1,88 | 3,51 |
+| velocidade constante | treino | 0,552 | 205 | 2,57 | 2,96 |
+| **RNN final** | treino | **0,602** | 183 | 1,79 | 2,69 |
+
+**Mas a vantagem sobre a velocidade constante depende da regra de associação.** Quando cada
+método usa a sua melhor (IoU, `max_age`) escolhida só no treino, a validação fica:
+Parte 1 0,494, velocidade constante 0,544, **RNN final 0,541** (a regra escolhida para a RNN,
+IoU 0,2, foi pior na validação do que a regra comum, IoU 0,3: 0,541 contra 0,576). Ou seja,
+contra a velocidade constante o resultado é **empate** nesse protocolo, com 2 vídeos de
+validação; a RNN ganha com clareza da caixa parada da Parte 1 nos dois protocolos. A velocidade
+constante tem menos ID switches (validação: 109 contra 117 com a regra comum).
+
+**Reconexão com o modelo final** (7 vídeos, mesma regra): buracos que terminam em id novo
+881 (parada), 976 (vel. constante), **647 (RNN final)**; mesma estrutura da seção 4: ganho nos
+buracos de 1–5 quadros (78% mantêm o id contra 71%) e de 16–30 (38% contra 27%), nenhum acima
+de 30 (5,5% contra 5,9%); câmera móvel 0,60 contra 0,49, câmera parada 0,85 contra 0,82.
+IoU às cegas na validação: k = 10 0,45 (parada 0,24); k = 30 0,15 (0,08). Em k = 30 nos
+vídeos de treino a caixa parada é melhor (0,48 contra 0,46).

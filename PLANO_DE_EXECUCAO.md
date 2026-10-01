@@ -335,6 +335,7 @@ Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
 | # | Decisão | Recomendação | Responsável |
 |---|---|---|---|
 | 1 | Trilha A ou B (Parte 2) | **Decidido: Trilha A** (RNN movimento) | dupla |
+| 1b | Modelo final (Partes 4 e 5, notebook) | **Decidido: `teacher_forcing_s42`** (`outputs/checkpoints/final_motion_rnn.pt`; `RELATORY_PART2.md` §6) | dupla |
 | 2 | Eixo de ablação (Parte 3) | Eixo 2 (regime de treino) | dupla |
 | 3 | Teste de estresse (Parte 5) | Queda de taxa de quadros | dupla |
 | 4 | Sequência MOT17 de validação nunca vista | Justificar por câmera parada/móvel, densidade, ponto de vista | dupla |

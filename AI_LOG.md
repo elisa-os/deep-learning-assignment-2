@@ -158,3 +158,17 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
   - Os resultados contrariaram duas das três hipóteses (teacher forcing não é pior às cegas na validação; sem clipping nada explode). O relatório registra isso, em vez de ajustar a hipótese depois.
   - Uma das medidas planejadas ("deriva" só com as próprias previsões) se mostrou inútil (igual em todos os regimes) e ficou documentada como resultado negativo.
   - Os runs com e sem clipping no teacher forcing deram resultados idênticos bit a bit, o que foi usado como checagem de que o clipping estava mesmo desligado.
+
+---
+
+## Episódio 10: Escolha do modelo final
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - A ablação da Parte 3 mostrou que a receita da Parte 2 (com buracos simulados) não ganhava do teacher forcing puro. Decidimos usar o teacher forcing como modelo final, desde que não contrariasse o enunciado.
+- **Como a IA auxiliou:**
+  - Conferiu o enunciado e apontou três condições: o comando que treina tem de reproduzir o modelo final; a comparação da Parte 2 tem de ser refeita com ele; e o critério de escolha usou os vídeos de validação ("nunca vista"), o que ficou declarado como viés.
+  - Reavaliou o modelo final (`outputs/final/`) sem sobrescrever os resultados anteriores (novo `--output-dir`).
+- **Validação / Decisões Humanas:**
+  - A reavaliação trouxe um resultado menos favorável: com cada método usando a sua melhor regra de associação, o modelo final empata com a velocidade constante na validação (0,541 contra 0,544). O relatório registra isso junto com o resultado a favor (0,576 com a regra comum).

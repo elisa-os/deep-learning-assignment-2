@@ -75,14 +75,14 @@ Após baixar, edite `pa2/config.yaml` → `parte1.sequence_split` e `parte2.sequ
 
 ### Um comando que treina
 
-Treina a solução principal (Parte 2 — Trilha A: RNN de movimento) com a configuração padrão de `pa2/config.yaml`:
+Treina o **modelo final** (GRU de 64 unidades, teacher forcing puro, seed 42, 20 épocas, checkpoint da última época), que é o `teacher_forcing` da ablação da Parte 3:
 
 ```bash
-cd deep-learning-assignment-2   # ou trabalhe a partir da raiz do repositório
-uv run pa2 2
+uv run pa2 3 --regimes teacher_forcing --seeds 42      # ≈1–2 min em CPU; grava outputs/parte3_ablation/checkpoints/teacher_forcing_s42.pt
+cp outputs/parte3_ablation/checkpoints/teacher_forcing_s42.pt outputs/checkpoints/final_motion_rnn.pt
 ```
 
-Isso treina o LSTM/GRU para prever a próxima caixa do tracking, com teacher forcing, usando as trajetórias do ground truth das sequências de treino. O treinamento usa os hiperparâmetros definidos em `pa2/config.yaml` → `parte2` (30 épocas, lr=1e-3, janela T=32).
+O treino usa as trajetórias do ground truth dos vídeos de treino (`pa2/config.yaml` → `parte3`). O retreino reproduz o regime, mas pode diferir bit a bit do checkpoint entregue (threads/máquina). `uv run pa2 2` treina o modelo inicial da Parte 2 (com buracos simulados e época escolhida pela validação), que não é o final.
 
 Sobrescreva epochs se precisar de uma execução mais curta (ex: validação rápida):
 
@@ -95,7 +95,7 @@ uv run pa2 2 --epochs 5
 Avalia o modelo já treinado sem retreinar, usando o checkpoint salvo:
 
 ```bash
-uv run pa2 2 --eval-only --checkpoint outputs/checkpoints/parte2_motion_rnn.pt
+uv run pa2 2 --eval-only --checkpoint outputs/checkpoints/final_motion_rnn.pt --output-dir outputs/final
 ```
 
 Isso carrega os pesos e roda, nos 7 vídeos com GT (treino e validação), a comparação Parte 1 × velocidade constante × RNN e a análise de reconexão depois de buracos. Gera em `outputs/`:
@@ -115,8 +115,8 @@ uv run pa2 0 --eval-only --checkpoint outputs/checkpoints/parte0_baseline.pt
 Além do README.md, o repositório entrega:
 
 - **`AI_LOG.md`** — log de uso de IA neste assignment, conforme exigido pela política de uso de IA do enunciado (seção 5 do PA2.pdf). Descreve episódios em que IA foi usada e como os problemas foram resolvidos.
-- **`pa2/inferencia.ipynb`** — notebook de inferência: recebe o caminho de uma sequência MOT17 qualquer e devolve o vídeo com as identidades coloridas de forma consistente e a contagem de objetos únicos, rodando sem retreinar. Usa o checkpoint da Parte 2 (`parte2_motion_rnn.pt`).
-- **`outputs/checkpoints/parte2_motion_rnn.pt`** — pesos do modelo temporal treinado (checkpoint). É o artefato que o `inferencia.ipynb` e o comando de avaliação usam.
+- **`pa2/inferencia.ipynb`** — notebook de inferência: recebe o caminho de uma sequência MOT17 qualquer e devolve o vídeo com as identidades coloridas de forma consistente e a contagem de objetos únicos, rodando sem retreinar. Usa o checkpoint do modelo final (`outputs/checkpoints/final_motion_rnn.pt`).
+- **`outputs/checkpoints/final_motion_rnn.pt`** — pesos do modelo temporal final (GRU 64, teacher forcing, seed 42; decisão em `RELATORY_PART2.md` §6). É o artefato que o `inferencia.ipynb` e o comando de avaliação usam. O modelo inicial da Parte 2 continua em `parte2_motion_rnn.pt`.
 
 ---
 

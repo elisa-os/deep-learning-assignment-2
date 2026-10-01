@@ -60,6 +60,8 @@ def main() -> None:
         default=None,
         help="Caminho para checkpoint para avaliação",
     )
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Sobrescreve output_dir (p.ex. para não sobrescrever resultados de outro modelo)")
     parser.add_argument("--seeds", type=int, nargs="+", default=None,
                         help="(parte 3) roda só estas seeds; vários processos podem dividir as seeds")
     parser.add_argument("--regimes", type=str, nargs="+", default=None,
@@ -75,6 +77,8 @@ def main() -> None:
         cfg.train.epochs = args.epochs
     if args.lr is not None:
         cfg.train.lr = args.lr
+    if args.output_dir is not None:
+        cfg.output_dir = args.output_dir
     if args.eval_only:
         cfg.train.eval_only = True
     if args.checkpoint is not None:
