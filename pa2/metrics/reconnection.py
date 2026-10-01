@@ -63,18 +63,21 @@ def gap_episodes(seq: Sequence, tracks: list[dict], iou_threshold: float = 0.5) 
                     gap_start = i
                 continue
             if gap_start is not None:
-                rows.append(_row(g, fs, gap_start, i, vis, "kept" if pid == last_id else "switched"))
+                rows.append(_row(g, fs, gap_start, i, vis, "kept" if pid == last_id else "switched",
+                                 last_id, pid))
                 gap_start = None
             last_id = pid
         if gap_start is not None:
-            rows.append(_row(g, fs, gap_start, len(fs), vis, "lost"))
-    return pd.DataFrame(rows, columns=["gt_id", "start", "length", "outcome", "mean_visibility"])
+            rows.append(_row(g, fs, gap_start, len(fs), vis, "lost", last_id, None))
+    return pd.DataFrame(rows, columns=["gt_id", "start", "length", "outcome", "mean_visibility",
+                                       "pred_before", "pred_after"])
 
 
-def _row(g, fs, a, b, vis, outcome) -> dict:
+def _row(g, fs, a, b, vis, outcome, pred_before=None, pred_after=None) -> dict:
     gap = fs[a:b]
     return {"gt_id": g, "start": gap[0], "length": len(gap), "outcome": outcome,
-            "mean_visibility": float(np.mean([vis[(f, g)] for f in gap]))}
+            "mean_visibility": float(np.mean([vis[(f, g)] for f in gap])),
+            "pred_before": pred_before, "pred_after": pred_after}
 
 
 def reconnection_table(episodes: pd.DataFrame) -> pd.DataFrame:

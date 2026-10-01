@@ -1,0 +1,19 @@
+{
+  "N50": {
+    "static": 15.825,
+    "const_vel": 11.44924053066718,
+    "rnn": 20.94110854503464
+  },
+  "natural_gaps": {
+    "n": 4105,
+    "median": 2.0,
+    "p90": 12.0,
+    "frac_longer_than_N50_rnn": 0.05505481120584653,
+    "frac_longer_than_30": 0.03288672350791717,
+    "max": 191
+  },
+  "visibility_runs": {
+    "n": 1021,
+    "frac_longer_than_N50_rnn": 0.2654260528893242
+  }
+}

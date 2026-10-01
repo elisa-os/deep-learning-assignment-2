@@ -1,0 +1,53 @@
+{
+  "oclusao_longa": {
+    "gt_id": 3,
+    "video": "09",
+    "start": 480,
+    "length": 18,
+    "outcome": "switched",
+    "pred_before": 25,
+    "pred_after": 35.0,
+    "mean_visibility": 0.14486833333333332,
+    "camera": "parada",
+    "speed_boxwidths_per_frame": 0.01841283572952206,
+    "gate_iou_at_end": 0.0,
+    "gate_iou_min_in_gap": 0.0,
+    "frames_until_gate_iou_below_0.3": 3.0,
+    "track_alive_at_end": true,
+    "swap_partner": NaN
+  },
+  "buraco_curto_camera_movel": {
+    "gt_id": 35,
+    "video": "13",
+    "start": 103,
+    "length": 4,
+    "outcome": "switched",
+    "pred_before": 66,
+    "pred_after": 71.0,
+    "mean_visibility": 0.827315,
+    "camera": "m\u00f3vel",
+    "speed_boxwidths_per_frame": 0.3916547811505657,
+    "gate_iou_at_end": 0.0,
+    "gate_iou_min_in_gap": 0.0,
+    "frames_until_gate_iou_below_0.3": 1.0,
+    "track_alive_at_end": true,
+    "swap_partner": NaN
+  },
+  "troca_entre_pessoas": {
+    "gt_id": 14,
+    "video": "09",
+    "start": 490,
+    "length": 6,
+    "outcome": "switched",
+    "pred_before": 26,
+    "pred_after": 23.0,
+    "mean_visibility": 0.16645566666666667,
+    "camera": "parada",
+    "speed_boxwidths_per_frame": 0.06862177570320117,
+    "gate_iou_at_end": 0.46613767263018346,
+    "gate_iou_min_in_gap": 0.5687784982357029,
+    "frames_until_gate_iou_below_0.3": 7.0,
+    "track_alive_at_end": true,
+    "swap_partner": 6.0
+  }
+}

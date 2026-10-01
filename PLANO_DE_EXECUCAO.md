@@ -243,7 +243,7 @@ de maior IDF1 médio de validação; checkpoint da seed 42 (sem escolher a melho
 
 ---
 
-## Fase 5 — Parte 4: Galeria de falhas + horizonte de memória (target: até X/2026)
+## Fase 5 — Parte 4: Galeria de falhas + horizonte de memória  *(FEITA — ver `RELATORY_PART4.md`)*
 
 1. Selecionar 3 trechos onde o modelo final erra feio
 2. Para cada um:

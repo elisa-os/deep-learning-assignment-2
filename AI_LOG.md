@@ -172,3 +172,16 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
   - Reavaliou o modelo final (`outputs/final/`) sem sobrescrever os resultados anteriores (novo `--output-dir`).
 - **Validação / Decisões Humanas:**
   - A reavaliação trouxe um resultado menos favorável: com cada método usando a sua melhor regra de associação, o modelo final empata com a velocidade constante na validação (0,541 contra 0,544). O relatório registra isso junto com o resultado a favor (0,576 com a regra comum).
+
+---
+
+## Episódio 11: Parte 4 (horizonte de memória, galeria, correção)
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Como a IA auxiliou:**
+  - Implementou o gradiente ∂L_t/∂h_{t−k} por autograd (com observações e às cegas), o experimento de oclusões injetadas (remove as detecções de uma identidade por N quadros e vê se o id volta), a escolha por regras fixas de três falhas e as figuras.
+  - A primeira escolha automática das falhas pegou dois buracos de mais de 100 quadros, em que a track morre pela regra de `max_age` e não por falta de memória; as regras foram refeitas para buracos dentro de `max_age`. Também limpou rótulos fora do recorte nas figuras.
+- **Validação / Decisões Humanas:**
+  - A hipótese da correção (amortecer a extrapolação às cegas) foi escrita antes de rodar. Ela **não funcionou**; a IA mediu por quê (a rede já encolhe o movimento: inclinação 0,5–0,8) e o relatório registra que o diagnóstico partiu de um caso extremo. Os fatores > 1 foram testados depois, como exploratório, e estão marcados como pós-hoc.
+  - Revisamos o relatório: corrigimos uma porcentagem (80% → 90%), um mecanismo que não foi verificado (a caixa "deslocada" na falha 1) e um trecho truncado.

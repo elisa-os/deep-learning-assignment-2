@@ -194,13 +194,14 @@ Três trechos em que o modelo final erra feio, cada um com a figura (tira de qua
 
 E fazer uma correção: escolher um dos diagnósticos, implementar a mudança que ele sugere, mostrar o antes/depois.
 
-- **Onde:** `pa2/part4.py` (pipeline da Parte 4)
-- **Como reproduzir:** `uv run pa2 4` (requer checkpoint da Parte 2 treinado)
-- **Saídas:**
-  - `outputs/parte4_failure_gallery.png` — 3 trechos com falhas e diagnósticos
-  - `outputs/parte4_memory_horizon.png` — curva de gradiente que some + distribuição de oclusão
-  - `outputs/parte4_correction_before_after.png` — antes/depois da correção
-- **Status:** A implementar
+- **Onde:** `pa2/part4.py` (pipeline), `pa2/analysis/memory.py` (gradiente, oclusões injetadas, duração dos buracos), `pa2/analysis/gallery.py` (escolha e figuras das falhas), `pa2/analysis/runner.py` (rastreador com caixas previstas guardadas), `pa2/metrics/reconnection.py`
+- **Como reproduzir:** `uv run pa2 4` (usa `outputs/checkpoints/final_motion_rnn.pt`; ≈40 min em CPU do zero, a etapa da correção é retomável). Relatório: `RELATORY_PART4.md`.
+- **Saídas** (em `outputs/final_parte4/`):
+  - `parte4_gradiente.png|csv|json` — horizonte analítico ||∂L_t/∂h_{t−k}||, com observações e às cegas, e comparação com outros regimes
+  - `parte4_sobrevivencia.png|csv`, `parte4_horizonte_empirico.json`, `parte4_oclusoes_injetadas.csv`, `parte4_buracos_*.csv` — horizonte empírico e duração das oclusões do dataset
+  - `parte4_falha_oclusao_longa.png`, `parte4_falha_buraco_curto_camera_movel.png`, `parte4_falha_troca_entre_pessoas.png`, `parte4_falhas.json`, `parte4_trechos.csv` — galeria de falhas (caixas sobre fundo vazio: o pacote de anotações não traz imagens)
+  - `parte4_correcao.png|csv`, `parte4_extrapolacao.csv` — correção testada (amortecer a extrapolação às cegas): **não melhorou**; o relatório explica o que isso revela sobre o diagnóstico
+- **Status:** Implementado e executado. Resultado principal: o estado sobrevive a ~21 quadros de oclusão (N50) contra 16 da caixa parada; 5% dos buracos reais de detecção passam disso.
 
 ### Parte 5 — Teste de estresse (queda de taxa de quadros)
 
@@ -277,7 +278,7 @@ deep-learning-assignment-2/
     ├── ablation.py               # (A implementar) Runner de ablações
     ├── part1.py                  # (A implementar) Pipeline da Parte 1
     ├── part2.py                  # (A implementar) Pipeline da Parte 2
-    ├── part4.py                  # (A implementar) Pipeline da Parte 4
+    ├── part4.py                  # Pipeline da Parte 4 (usa pa2/analysis/)
     ├── part5.py                  # (A implementar) Pipeline da Parte 5
     ├── stress/                   # (A implementar) Testes de estresse
     │   ├── __init__.py
@@ -336,7 +337,7 @@ parte0:
 | Parte 1 — Baseline por quadro | **Feita com detecções públicas** (SDP) — falta rodar o detector torchvision (imagens + GPU) |
 | Parte 2 — Trilha A (RNN movimento) | A implementar |
 | Parte 3 — Ablação (Eixo 2) | **Feita** — 7 regimes × 3 seeds, resultados em `RELATORY_PART3.md` |
-| Parte 4 — Galeria de falhas + horizonte de memória | A implementar |
+| Parte 4 — Galeria de falhas + horizonte de memória | Feita (ver `RELATORY_PART4.md`) |
 | Parte 5 — Teste de estresse (queda de taxa de quadros) | A implementar |
 | Entregáveis (README, AI_LOG, inferencia.ipynb, checkpoints) | A completar |
 

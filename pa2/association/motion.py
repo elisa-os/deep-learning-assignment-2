@@ -56,7 +56,11 @@ class ConstantVelocityMotion:
 class RNNMotion:
     """Modelo recorrente da Trilha A: um vetor de estado por track, avançado em lote."""
 
-    def __init__(self, model: MotionRNN, img_size: tuple[float, float], dt: float = 1.0):
+    def __init__(self, model: MotionRNN, img_size: tuple[float, float], dt: float = 1.0,
+                 blind_damping: float = 1.0):
+        # blind_damping < 1: nos passos SEM observação, o deslocamento previsto pela rede é
+        # multiplicado por este fator (a velocidade extrapolada decai geometricamente). 1.0 = sem efeito.
+        self.blind_damping = blind_damping
         self.model = model.eval()
         self.size = torch.tensor(img_size, dtype=torch.float32)
         self.dt = dt
@@ -74,4 +78,7 @@ class RNNMotion:
         state = torch.stack([s if s is not None else init for s in states])
         pred, new, _ = self.model.step(fed_t, prev_t, torch.as_tensor(observed, dtype=torch.float32),
                                        torch.full((n,), self.dt), self.size.expand(n, 2), state)
+        if self.blind_damping != 1.0:
+            blind = torch.as_tensor(~np.asarray(observed, dtype=bool))[:, None]
+            pred = torch.where(blind, fed_t + self.blind_damping * (pred - fed_t), pred)
         return list(new.unbind(0)), cxcywh_to_ltwh(pred.numpy().astype(np.float64))

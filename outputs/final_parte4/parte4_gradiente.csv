@@ -1,0 +1,5 @@
+modelo,k (cai p/ 1/2),k (cai p/ 1/10),k (cai p/ 1/100),razão k=31 / k=0,cego: razão k=31 / k=0,cego: razão k=47 / k=0
+final (teacher forcing),3,13,39,0.0178,7.73,2.98
+receita Parte 2 (com buracos),5,20,46,0.039,10.45,3.57
+scheduled sampling,3,18,47,0.0415,5.95,2.9
+free-running,3,11,32,0.0102,3.92,1.42

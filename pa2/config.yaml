@@ -176,3 +176,27 @@ parte3:
         gap_prob: 0.5
         max_gap: 20
         gradient_clipping: true
+
+# ── Parte 4 — Horizonte de memória, galeria de falhas e correção ──
+# Usa o modelo final (checkpoint abaixo) e as detecções congeladas da Parte 1 (SDP).
+parte4:
+  synthetic: false
+  data_dir: data/MOT17
+  sequence_split:
+    train: []
+    val: []
+    test: []
+  detector_source: "SDP"
+  checkpoint: outputs/checkpoints/final_motion_rnn.pt
+  rnn:
+    type: "GRU"
+    hidden_size: 64
+  association:           # a mesma regra das Partes 1 a 3
+    method: "greedy"
+    iou_threshold: 0.3
+    max_age: 30
+    min_hits: 3
+    min_conf: null
+    eval_iou: 0.5
+  window_T: 32
+  obs_noise: [0.06, 0.025, 0.08, 0.045]
