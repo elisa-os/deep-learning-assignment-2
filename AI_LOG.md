@@ -111,3 +111,19 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
   - Reescreveu `metrics/tracking.py` (IDF1 em caixas com Hungarian; ID switches e fragmentações com matching estilo CLEAR-MOT), o gerador (pintura em ordem de profundidade, visibilidade medida por pixel, oclusão roteirizada de N quadros, ruído e contraste) e `part0.py` com asserts. Criou `tests/` e `pa2/metrics/cases.py`.
 - **Validação / Decisões Humanas:**
   - Os valores esperados dos casos (b) e (c) (IDF1 = 2/3 e 156/177) foram derivados à mão a partir das contagens de caixas (ver docstring de `pa2/metrics/cases.py`) e só depois comparados com a saída do código. Conferimos as figuras de oclusão e a varredura.
+
+---
+
+## Episódio 7: Parte 1 (baseline por quadro)
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Implementar a Parte 1 com cautela, usando só o pacote de anotações (~10 MB) e deixando o detector torchvision para quando houver imagens/GPU.
+- **Como a IA auxiliou:**
+  - Explorou o `gt.txt` e achou convenções que mudam a avaliação: GT contínuo (oclusão só na `visibility`), classes distratoras (2, 7, 8, 12), scores saturados em 1,0 no FRCNN/SDP e GT idêntico entre os três detectores (⇒ split por vídeo).
+  - Escreveu loader, NMS, AP/mAP, rastreador por IoU, avaliação, wrapper do torchvision, `part1.py` e testes. Também achou e corrigiu um bug de configuração: a seção `association:` aninhada do `config.yaml` era ignorada em silêncio.
+  - Primeiro o `part1.py` não existia (o `uv run pa2 1` falhava); só foi declarado feito depois de rodar de ponta a ponta.
+- **Validação / Decisões Humanas:**
+  - Testes que usam o GT real: GT como predição ⇒ IDF1 = 1; GT como detecções ⇒ AP50 = 1. Dois testes foram reescritos por serem fracos (asserção tautológica).
+  - A escolha do detector (SDP) e da regra de associação seguem regras fixas no código e usam só os vídeos de treino; o detector torchvision continua pendente.

@@ -38,7 +38,7 @@ parte1:
     train: []
     val: []
     test: []
-  detector_source: "FRCNN"
+  detector_source: "SDP"
   use_torchvision_detector: false
   batch_size: 1
   num_workers: 0
@@ -51,6 +51,8 @@ parte1:
     iou_threshold: 0.3
     max_age: 30
     min_hits: 3
+    min_conf: null     # null = limiar de score que maximiza o F1 no treino (ver Parte 1)
+    eval_iou: 0.5
 
 # ── Parte 2 — Trilha A: RNN como modelo de movimento ─────
 parte2:

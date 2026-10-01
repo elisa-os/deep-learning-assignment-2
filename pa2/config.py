@@ -62,6 +62,8 @@ class AssociationConfig:
     iou_threshold: float = 0.3
     max_age: int = 30                    # quadros sem observação antes de matar track
     min_hits: int = 3                    # hits mínimos para track válida
+    min_conf: float | None = None        # confiança mínima das detecções (None = limiar do detector)
+    eval_iou: float = 0.5                # limiar de IoU das métricas (IDF1, switches, AP50)
 
 
 @dataclass
@@ -105,7 +107,7 @@ class Config:
     ablation: AblationConfig = field(default_factory=AblationConfig)
 
     # Detector público do MOT17 (Parte 1+)
-    detector_source: str = "FRCNN"       # DPM | FRCNN | SDP
+    detector_source: str | None = "FRCNN"  # DPM | FRCNN | SDP (None = escolher na Parte 1)
     use_torchvision_detector: bool = False
 
 
@@ -167,9 +169,16 @@ def load_config(
         data_fields = {"synthetic", "data_dir", "batch_size", "num_workers", "sequence_split"}
         model_fields = {"rnn_type", "input_size", "hidden_size", "num_layers", "dropout",
                         "use_delta_t", "predict_uncertainty"}
-        assoc_fields = {"method", "iou_threshold", "max_age", "min_hits"}
+        assoc_fields = {"method", "iou_threshold", "max_age", "min_hits", "min_conf", "eval_iou"}
         rnn_fields = {"window_T", "teacher_forcing_ratio"}
         train_fields = {"epochs", "lr", "checkpoint", "eval_only", "gradient_clipping", "grad_clip_value"}
+
+        # Seções aninhadas do YAML (association:, rnn:) valem como se fossem campos soltos.
+        nested_assoc = parte_section.get("association") or {}
+        nested_rnn = dict(parte_section.get("rnn") or {})
+        if "type" in nested_rnn:
+            nested_rnn["rnn_type"] = nested_rnn.pop("type")
+        parte_section = {**nested_assoc, **nested_rnn, **parte_section}
 
         syn_raw = {k: v for k, v in parte_section.items() if k in syn_fields}
         data_raw = {k: v for k, v in parte_section.items() if k in data_fields}

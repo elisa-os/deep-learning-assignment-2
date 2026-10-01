@@ -1,13 +1,17 @@
-"""Carregador de sequências MOT17 para o PA2."""
+"""Loader e avaliação do MOT17 (Parte 1+)."""
 
 from .loader import (
-    MOT17Sequence,
-    MOT17Dataset,
-    load_mot17_sequences,
+    CAMERA_MOVING,
+    DEFAULT_SPLIT,
+    DETECTORS,
+    Sequence,
+    load_detections,
+    resolve_split,
+    to_mot_records,
+    write_detections,
 )
 
 __all__ = [
-    "MOT17Sequence",
-    "MOT17Dataset",
-    "load_mot17_sequences",
+    "CAMERA_MOVING", "DEFAULT_SPLIT", "DETECTORS", "Sequence", "load_detections",
+    "resolve_split", "to_mot_records", "write_detections",
 ]

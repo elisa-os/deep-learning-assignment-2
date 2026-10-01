@@ -148,15 +148,20 @@ Parte 0 valida o pipeline completo antes de tocar em dados reais, usando vídeos
 
 ### Parte 1 — Baseline por quadro
 
-Treina/inference com detecções públicas do MOT17 (DPM, FRCNN ou SDP — escolher um como padrão e justificar no README) + detector pré-treinado do torchvision (classe person do COCO, modo inferência). Associação ingênua: IoU entre detecções de t e t-1, matching guloso ou Hungarian, limiar fixo, ID novo quando nada casa, track morta depois de k quadros sem observação. Métricas implementadas por nós: IDF1 (atribuição global um-para-um entre identidades previstas e verdadeiras na sequência inteira), ID switches e fragmentações contadas explicitamente, erro de contagem de identidades únicas no vídeo.
+Detecções congeladas + associação ingênua por IoU; nada é treinado. Duas fontes de detecção: as públicas do MOT17 (`det/det.txt`; escolhida: **SDP**) e o Faster R-CNN pré-treinado do torchvision (classe `person`, só inferência, NMS próprio). Associação: IoU entre a última caixa de cada track e as detecções do quadro, guloso ou Hungarian, limiar fixo, id novo quando nada casa, track morta após `max_age` quadros sem observação (regras completas em `pa2/association/tracker.py` e em `RELATORY_PART1.md`).
 
-- **Onde:** `pa2/mot17/loader.py` (dataset MOT17), `pa2/association/matching.py` (GreedyMatcher e HungarianMatcher), `pa2/metrics/tracking.py` (IDF1, ID switches, fragmentações)
-- **Como reproduzir:** `uv run pa2 1` (requer MOT17 baixado e configurado em `pa2/config.yaml` → `parte1.sequence_split`)
-- **Saídas:**
-  - `outputs/metrics/parte1_tracking_results.json` — métricas de tracking
-  - `outputs/metrics/parte1_per_sequence_tracking_metrics.csv` — métricas por sequência
-  - `outputs/parte1_resultados.png` — gráfico IDF1 por sequência
-- **Status:** A implementar
+- **Onde:** `pa2/mot17/` (loader, avaliação com distratores), `pa2/association/tracker.py` (rastreador), `pa2/detection/` (NMS próprio, detector torchvision), `pa2/metrics/` (IDF1/switches/fragmentações e AP/mAP), `pa2/part1.py` (pipeline)
+- **Como reproduzir:** `uv run pa2 1` (≈90 s, só com o pacote de anotações de ~10 MB em `data/MOT17/`). Testes: `uv run pytest`.
+- **Detector torchvision:** precisa das imagens (pacote completo de ~5,5 GB em `data/MOT17/`) e, na prática, de GPU. Ligue com `use_torchvision_detector: true` em `parte1` do `config.yaml`; as detecções ficam em cache em `outputs/detections/torchvision/`.
+- **Saídas** (`outputs/`):
+  - `parte1_sequences.csv` — estatísticas dos vídeos (densidade, câmera, visibilidade)
+  - `parte1_detector_comparison.csv` — DPM vs FRCNN vs SDP (só treino) e a escolha
+  - `parte1_association_variants.csv` — 24 variantes da regra de associação
+  - `parte1_per_sequence_public.csv` — IDF1, ID switches, fragmentações, erro de contagem, AP/mAP por vídeo
+  - `parte1_descolamento.png` — gráfico obrigatório (mAP e IDF1 / razão de ids e switches por id)
+  - `parte1_summary.json` — configuração escolhida
+- **Split por vídeo** (nunca por quadro nem por detector): treino 02, 04, 05, 10, 11; validação 09 (câmera parada, esparso) e 13 (câmera móvel, alta rotatividade de identidades). O `test/` do MOT17 não tem GT.
+- **Status:** Implementado com as detecções públicas. **Pendente:** rodar o detector torchvision (precisa das imagens/GPU).
 
 ### Parte 2 — Trilha A: RNN como modelo de movimento
 
@@ -255,11 +260,19 @@ deep-learning-assignment-2/
     │
     ├── association/
     │   ├── __init__.py
-    │   └── matching.py           # GreedyMatcher, HungarianMatcher (implementação própria)
+    │   ├── matching.py           # GreedyMatcher, HungarianMatcher (Parte 0)
+    │   └── tracker.py            # IoUTracker: baseline ingênuo da Parte 1
     │
-    ├── mot17/                    # (A implementar) Loader MOT17
+    ├── mot17/                    # Loader MOT17 + avaliação com distratores
     │   ├── __init__.py
-    │   └── loader.py
+    │   ├── loader.py
+    │   └── evaluate.py
+    │
+    ├── detection/                # NMS próprio + detector torchvision (inferência)
+    │   ├── nms.py
+    │   └── torchvision_person.py
+    │
+    ├── part1.py                  # Pipeline da Parte 1
     │
     ├── models/                   # (A implementar) RNN de movimento
     │   ├── __init__.py
@@ -324,7 +337,7 @@ parte0:
 | Parte | Status |
 |-------|--------|
 | Parte 0 — Testes sintéticos | **Concluída e revisada** — gerador com oclusão por profundidade, simulador testado, IDF1/ID switches/fragmentações validados nos 3 casos à mão (`uv run pytest`), baseline fácil com IDF1 ≈ 1 e varredura dos botões. |
-| Parte 1 — Baseline por quadro | A implementar |
+| Parte 1 — Baseline por quadro | **Feita com detecções públicas** (SDP) — falta rodar o detector torchvision (imagens + GPU) |
 | Parte 2 — Trilha A (RNN movimento) | A implementar |
 | Parte 3 — Ablação (Eixo 2) | A implementar |
 | Parte 4 — Galeria de falhas + horizonte de memória | A implementar |
