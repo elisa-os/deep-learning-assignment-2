@@ -1,0 +1,29 @@
+{
+  "detector": "SDP",
+  "min_conf": 0.4,
+  "association": {
+    "method": "greedy",
+    "iou_threshold": 0.3,
+    "max_age": 30,
+    "min_hits": 3
+  },
+  "split": {
+    "train": [
+      "02",
+      "04",
+      "05",
+      "10",
+      "11"
+    ],
+    "val": [
+      "09",
+      "13"
+    ]
+  },
+  "best_detector_by_train_idf1": "SDP",
+  "thresholds": {
+    "DPM": -0.295,
+    "FRCNN": 0.05,
+    "SDP": 0.4
+  }
+}

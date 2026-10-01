@@ -1,0 +1,6 @@
+sequence,n_gt_ids,n_pred_ids,idf1,id_switches,fragmentations,mota,count_error,mostly_tracked,mostly_lost,num_frames,notes
+baseline_easy_seed84,3,3,1.0,0,0,1.0,0,1.0,0.0,30,"baseline ingênuo (IoU=0.3, max_age=5), piso fácil"
+baseline_easy_seed85,3,3,1.0,0,0,1.0,0,1.0,0.0,30,"baseline ingênuo (IoU=0.3, max_age=5), piso fácil"
+baseline_easy_seed86,3,3,1.0,0,0,1.0,0,1.0,0.0,30,"baseline ingênuo (IoU=0.3, max_age=5), piso fácil"
+baseline_easy_seed87,3,3,1.0,0,0,1.0,0,1.0,0.0,30,"baseline ingênuo (IoU=0.3, max_age=5), piso fácil"
+baseline_easy_seed88,3,3,1.0,0,0,1.0,0,1.0,0.0,30,"baseline ingênuo (IoU=0.3, max_age=5), piso fácil"
