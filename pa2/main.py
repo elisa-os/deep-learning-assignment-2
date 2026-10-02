@@ -30,7 +30,7 @@ def main() -> None:
         "parte",
         nargs="?",
         default="0",
-        help="Número da parte a executar (0-5, default: 0)",
+        help="Número da parte a executar (0-5, default: 0) ou `train-final` (treina o modelo final)",
     )
     parser.add_argument(
         "--config",
@@ -69,9 +69,16 @@ def main() -> None:
                         help="(parte 3) roda só estes regimes (nomes do config.yaml)")
     parser.add_argument("--aggregate-only", action="store_true",
                         help="(parte 3) só agrega os runs que já existem")
+    parser.add_argument("--install", action="store_true",
+                        help="(train-final) copia o checkpoint treinado para outputs/checkpoints/final_motion_rnn.pt")
     args = parser.parse_args()
 
     parte = args.parte
+    train_final = parte == "train-final"
+    if train_final:
+        # modelo final = regime `teacher_forcing`, seed 42 da Parte 3 (RELATORY_PART2.md §6)
+        parte, args.seeds, args.regimes = "3", [42], ["teacher_forcing"]
+        args.output_dir = args.output_dir or "outputs/retreino"
     cfg = load_config(path=args.config, parte=parte)
 
     if args.epochs is not None:
@@ -128,6 +135,17 @@ def main() -> None:
         print(f"Parte {parte_int} não implementada ainda.")
         print("Partes disponíveis: 0 (sintético), 1 (baseline), 2 (RNN), 3 (ablação), 4 (galeria), 5 (estresse)")
         sys.exit(1)
+
+    if train_final:
+        import shutil
+        from pathlib import Path
+        trained = Path(cfg.output_dir) / "parte3_ablation" / "checkpoints" / "teacher_forcing_s42.pt"
+        target = Path("outputs/checkpoints/final_motion_rnn.pt")
+        if args.install:
+            shutil.copy(trained, target)
+            print(f"\nCheckpoint final instalado em {target}")
+        else:
+            print(f"\nCheckpoint treinado: {trained} (use --install para copiá-lo para {target})")
 
     print("\nConcluído.")
 

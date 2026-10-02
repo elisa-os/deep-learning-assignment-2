@@ -22,7 +22,7 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
   - Criou a estrutura de diretórios e todos os arquivos base (`pyproject.toml`, `config.yaml`, `config.py`, `utils/`, `metrics/`, `synthetic_video/`, `association/`, `main.py`)
 - **Validação / Decisões Humanas:**
   - Revisão das decisões de design (Trilha A, Eixo 2, queda de taxa de quadros) — confirmadas pela dupla
-  - Revisão da estrutura de pacotes e contratos de interface para garantir que Marcela possa continuar a partir deles
+  - Revisão da estrutura de pacotes e contratos de interface para garantir que a dupla (Bruno e Elisa) possa continuar a partir deles
 
 ---
 
@@ -59,7 +59,7 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
 - **Validação / Decisões Humanas:**
   - Caso (a): pred = GT → IDF1=1.0000, sw=0, frag=0 ✓
   - Caso (b): troca de IDs a partir do frame 16 → sw=2 (correto: uma troca para cada GT identity) ✓
-  - Caso (c): track dividida em duas a partir do frame 10, com omissão de detecção nas frames 12-14 → IDF1=0.8571, sw=1, frag=1 ✓
+  - Caso (c): track dividida em duas a partir do frame 10, com omissão de detecção nas frames 12-14 → IDF1=156/177≈0.881, sw=1, frag=1 ✓
   - Decisão: ID switches e fragmentações são computados com matching frame a frame, não com matching global. Isso é consistente com a definição MOTChallenge.
 
 ---
@@ -244,4 +244,22 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
   - Achou um risco de portabilidade: o `torch` fixado no índice CUDA sem marcador de plataforma (macOS não tem wheels nesse índice) e uma chave `tool.uv.package` fora do escopo. Ao corrigir, percebeu que o lock passaria o macOS para `torch 2.14.1` (não testado) e limitou o intervalo a `<2.8`.
   - Removeu código morto herdado do PA1, unificou `Context`/`build_context`, tornou públicos os helpers importados entre módulos e zerou o lint. Como os testes não exercitam os pipelines `run_parte*`, reexecutou as Partes 0, 1, 2, 4 (etapas A e C) e 5 depois da faxina e confirmou que reproduzem os resultados versionados.
 - **Validação / Decisões Humanas:**
-  - Não foi reproduzido: a instalação em macOS, os 21 treinos completos da Parte 3 e as etapas B e D da Parte 4. A lacuna de conformidade da Parte 1 (detector torchvision nunca rodado em imagens reais) segue em aberto e foi mantida visível.
+  - Não foi reproduzido: a instalação em macOS, os 21 treinos completos da Parte 3 e as etapas B e D da Parte 4. A lacuna de conformidade da Parte 1 (detector torchvision nunca rodado em imagens reais) estava em aberto nesta data e foi fechada no Episódio 16.
+
+---
+
+## Episódio 16: Revisão final, galeria, material da apresentação e detector torchvision
+
+- **Data:** 02/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Véspera/dia da apresentação: auditar o repositório contra o enunciado, corrigir o que estivesse errado, montar o material visual e fechar a única lacuna de conformidade (o detector torchvision da Parte 1, que nunca tinha rodado em imagens reais).
+- **Como a IA auxiliou:**
+  - Três revisões independentes (Partes 0-1, Partes 2-3, Partes 4-5 e estrutura) contra o `PA2.md`; os números citados nos relatórios foram conferidos contra os CSVs. Achados: o detector torchvision pendente, o RPN do torchvision ainda usando `batched_nms` (documentado), erros no `AI_LOG.md` (um nome que não era da dupla e um IDF1 do caso (c) desatualizado: 0,8571 → 156/177 ≈ 0,881), o campo `settings` do `parte2_summary.json` descrevendo a receita errada, e a galeria da Parte 4 com o GT em cinza (o enunciado pede GT e predição coloridos por identidade).
+  - Implementou as correções (galeria com GT colorido e diagnóstico na legenda, subcomando `uv run pa2 train-final`, `settings` do JSON, poda de 15 checkpoints e do zip redundante), montou `apresentacao/` (figuras copiadas de `outputs/` e geradas por `apresentacao/montar_apresentacao.py`) e escreveu as anotações de estudo para a apresentação.
+  - Depois do download do `MOT17.zip`, extraiu só os quadros SDP de treino, mediu a velocidade do detector em 40 quadros (0,1 s/quadro) antes de rodar tudo, e rodou o Faster R-CNN nos 7 vídeos. As hipóteses foram escritas em `RELATORY_PART1.md` §7 **antes** de rodar; o resultado refutou parte delas (AP50 do torchvision é maior que o do SDP em 4 de 7 vídeos, apesar de o mAP e o IDF1 serem menores em 7 de 7).
+  - Descobriu que o estágio do torchvision exigia as imagens mesmo com o cache pronto e o corrigiu para ler o cache sem imagens; ao reexecutar do cache, o CSV mudou na 4ª casa decimal (o cache guarda as caixas em texto), então os números documentados são os do cache.
+- **Validação / Decisões Humanas:**
+  - A dupla decidiu rodar só o mínimo (o detector torchvision e o vídeo do notebook com fundo real) e não refazer as figuras de falha da Parte 4 sobre quadros reais. As Partes 0, 2, 3, 4 e 5 não leem imagem, então não foram reexecutadas.
+  - Segue não reproduzido: instalação em macOS, os 21 treinos completos da Parte 3 e as etapas B e D da Parte 4.
+

@@ -1,8 +1,9 @@
 # Relatório — Parte 1 (baseline por quadro)
 
 **Reproduzir:** `uv run pa2 1` (≈90 s) e `uv run pytest`. Saídas em `outputs/parte1_*`.
-**Dados:** só o pacote de anotações (~10 MB). O detector torchvision **ainda não foi rodado**
-(precisa das imagens, ~5,5 GB, e de GPU); ver §6.
+**Dados:** o pacote de anotações (~10 MB) basta para tudo, menos para o detector torchvision (§7), que
+precisa das imagens `img1/` (do `MOT17.zip` de ~5,5 GB; não versionadas). As detecções dele ficam em cache
+(`outputs/detections/torchvision/`, versionado), então `uv run pa2 1` reproduz a §7 sem as imagens.
 
 ## 1. Os vídeos e o split
 
@@ -108,13 +109,10 @@ vídeos não dá para separar bem densidade, movimento de câmera e oclusão; o 
 câmera e densidade em cada vídeo para isso ficar visível.
 
 ## 6. Pendências e limitações
-- **Detector torchvision não rodado.** O código está pronto e testado com modelo falso
-  (`tests/test_torchvision_detector.py`): classe `person`, NMS interno desligado e substituído
-  pelo nosso, cache em `outputs/detections/torchvision/`. Os pesos COCO carregam e uma
-  inferência numa imagem sintética funcionou. Falta baixar as imagens do MOT17 (~5,5 GB) e,
-  em CPU, o custo é de segundos por quadro; com GPU, minutos para os ~5300 quadros de treino.
-  Ligue com `use_torchvision_detector: true`; a etapa gera `parte1_per_sequence_torchvision.csv`
-  e `parte1_descolamento_torchvision.png`.
+- **Detector torchvision: rodado em 02/10** (§7). Código testado com modelo falso (`tests/test_torchvision_detector.py`):
+  classe `person`, NMS final (`roi_heads`) desligado e substituído pelo nosso (o RPN do torchvision ainda usa
+  `batched_nms` com limiar 0,7 internamente: faz parte do modelo permitido, e o NMS de saída é o de
+  `pa2/detection/nms.py`), cache em `outputs/detections/torchvision/`.
 - Fine-tune do detector: não feito (opcional no enunciado).
 - A escolha do detector e da associação usa só o treino, mas são 5 vídeos e as diferenças
   entre as melhores variantes são pequenas.
@@ -127,3 +125,39 @@ câmera e densidade em cada vídeo para isso ficar visível.
   também é feito em `evaluate_tracks`). Medi o efeito com o modelo final nos 7 vídeos: IDF1 médio **0,595 com o filtro e
   0,596 sem** (validação: 0,576 nos dois casos; maior diferença: 0,454 → 0,466 no vídeo 02). O notebook de inferência usa as
   detecções brutas, sem GT, e os números das Partes 1 a 5 não ficam enviesados por esse filtro.
+
+## 7. Detector torchvision (Faster R-CNN COCO, classe `person`): hipóteses registradas ANTES de rodar × resultado
+**Configuração:** Faster R-CNN ResNet50-FPN (`COCO_V1`, pesos pré-treinados, **sem fine-tune**), classe `person`,
+`score_thresh` 0,05, NMS final próprio (IoU 0,5), 7 vídeos (5.316 quadros), GTX 1080 Ti, ~0,1 s/quadro (~9 min no total).
+Mesmo protocolo da §3: limiar de score pelo melhor F1 **no treino** (deu **0,531**, contra 0,4 do SDP), mesma associação
+(guloso, IoU 0,3, `max_age` 30, `min_hits` 3), mesma remoção de distratores. Saídas: `parte1_per_sequence_torchvision.csv`,
+`parte1_descolamento_torchvision.png`, `detections/torchvision/*.txt`. O resto do PA continua no SDP (esta comparação não alimenta as Partes 2 a 5).
+
+**Hipóteses (escritas antes de rodar, ~18h45):**
+- **H1:** o detector COCO fica **abaixo do SDP** em mAP e AP50 no MOT17.
+- **H2:** o **descolamento persiste** (IDF1 bem abaixo do F1 da detecção; o vídeo 10 continua o pior em identidade).
+- **H3:** o limiar de score ótimo é bem diferente do 0,4 do SDP.
+
+**Resultado (média por split; por vídeo em `parte1_per_sequence_torchvision.csv`):**
+
+| fonte | split | AP50 | mAP | precisão | recall | F1 det. | IDF1 | ids prev./verd. | switches/id |
+|---|---|---|---|---|---|---|---|---|---|
+| SDP | treino | 0,670 | **0,437** | 0,948 | 0,675 | 0,784 | **0,564** | 1,88 | 3,51 |
+| torchvision | treino | 0,626 | 0,337 | 0,701 | 0,609 | 0,645 | 0,461 | 3,48 | 2,89 |
+| SDP | validação | 0,595 | **0,385** | 0,930 | 0,615 | 0,740 | **0,488** | 1,90 | 2,95 |
+| torchvision | validação | 0,671 | 0,361 | 0,754 | 0,654 | 0,699 | 0,424 | 3,66 | 4,02 |
+
+- **H1: parcialmente confirmada.** O **mAP** é menor em **7 de 7** vídeos (treino 0,337 × 0,437; validação 0,361 × 0,385), então o
+  torchvision **localiza pior** (a diferença é maior em IoU alto). Mas o **AP50** do torchvision é **maior em 4 de 7** vídeos
+  (02, 05, 09 e 13; inclusive os dois de validação: 0,671 × 0,595), então a hipótese "abaixo do SDP em AP50" é **refutada** na validação
+  e vale só no treino (0,626 × 0,670). A diferença de qualidade entre os detectores está mais na **precisão** (0,70 × 0,95 nos limiares de melhor F1) e na
+  precisão da caixa do que em "achar" as pessoas.
+- **IDF1 menor em 7 de 7 vídeos** com o torchvision (treino 0,461 × 0,564; validação 0,424 × 0,488), e ~2× mais ids por pessoa
+  (3,5 × 1,9): mais falsos positivos viram tracks que nascem e morrem. Com um detector **pior em precisão**, a mesma associação ingênua fragmenta mais.
+- **H2: confirmada.** O IDF1 fica bem abaixo do F1 da detecção (validação 0,424 × 0,699) e o vídeo 10 continua o pior caso (5,6 ids por pessoa, 7,1
+  switches por id); logo o descolamento **não é característica do SDP**, é da associação ingênua.
+- **H3: confirmada.** Limiar ótimo 0,531 (P = 0,739, R = 0,581) contra 0,4 (SDP): as escalas de score são diferentes.
+- **Por que ficamos com o SDP no resto do PA:** é melhor em mAP e IDF1 em todos os 7 vídeos (e em precisão na média), e o `det.txt` já é o que o benchmark fornece.
+- **Ressalvas:** sem fine-tune (o enunciado diz que só vale se mostrar o que muda no rastreamento; não fizemos); o limiar de score do torchvision foi tunado
+  só no treino (5 vídeos); o CSV é reproduzido a partir do **cache** (que guarda as caixas em texto com precisão limitada), e a execução com os
+  tensores em memória deu diferenças na 4ª casa decimal (ex.: AP50 do vídeo 02: 0,48482 × 0,48480) e diferença de no máximo 1 em alguma contagem; os números aqui são os do cache.

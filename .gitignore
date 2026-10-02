@@ -33,3 +33,14 @@ wandb/
 # Arquivos de teste locais
 *.tmp
 *.bak
+
+# Download do pacote completo do MOT17 (5,5 GB)
+MOT17.zip
+MOT17*.zip.part
+
+# Imagens do MOT17 (extraídas do MOT17.zip; só o detector torchvision e o vídeo do notebook usam)
+data/MOT17/**/img1/
+
+# Anotações pessoais (não versionar)
+.bruno-anotacoes*
+.pytest_cache/

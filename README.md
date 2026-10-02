@@ -27,7 +27,7 @@ Comandos do CLI (uma parte por vez; cada uma grava em `outputs/` e imprime o que
 
 ```bash
 uv run pa2 0     # Parte 0 — testes sintéticos (gerador + simulador + métricas + baseline)      ≈20 s
-uv run pa2 1     # Parte 1 — baseline por quadro (detecções públicas, associação por IoU)       ≈90 s
+uv run pa2 1     # Parte 1 — baseline por quadro (detecções públicas + detector torchvision)     ≈2 min (com o cache do torchvision; ≈10 min em GPU sem ele)
 uv run pa2 2     # Parte 2 — RNN como modelo de movimento (Trilha A; modelo inicial)            ≈6 min
 uv run pa2 3     # Parte 3 — ablação do regime de treino (Eixo 2; 21 treinos)                   ≈25 min
 uv run pa2 4     # Parte 4 — horizonte de memória, galeria de falhas, correção                  ≈40 min
@@ -46,18 +46,19 @@ data/MOT17/
   test/MOT17-01-SDP/{det/det.txt, seqinfo.ini}                # o test/ não tem GT
 ```
 
-As **imagens** (`img1/`) não estão aqui: precisariam do `MOT17.zip` completo (~5,5 GB, https://motchallenge.net/data/MOT17/) e só servem para o detector do torchvision (Parte 1) e para o vídeo do notebook com fundo real. O pacote de anotações é o `MOT17Labels.zip` do mesmo site. O split de treino e validação é por vídeo e está definido em `pa2/mot17/loader.py` (`DEFAULT_SPLIT`; `sequence_split` do `config.yaml`, se preenchido, tem prioridade).
+As **imagens** (`img1/`) não são versionadas (`.gitignore`): vêm do `MOT17.zip` completo (~5,5 GB, https://motchallenge.net/data/MOT17/) e só servem para o detector do torchvision (Parte 1) e para o vídeo do notebook com fundo real. As detecções do torchvision já estão em cache em `outputs/detections/torchvision/` (versionado), então **nada precisa ser baixado para reproduzir** a Parte 1. Para refazer o cache ou ter fundo real no notebook: `unzip MOT17.zip "MOT17/train/*-SDP/img1/*" -d data/` (~0,9 GB). O pacote de anotações (`MOT17Labels.zip`, ~10 MB, mesmo site) já está extraído em `data/MOT17/`; o zip não é versionado. O split de treino e validação é por vídeo e está definido em `pa2/mot17/loader.py` (`DEFAULT_SPLIT`; `sequence_split` do `config.yaml`, se preenchido, tem prioridade).
 
 ### Um comando que treina
 
 Treina o **modelo final** (GRU de 64 unidades, teacher forcing puro, seed 42, 20 épocas, checkpoint da última época), que é o `teacher_forcing` da ablação da Parte 3, **sem sobrescrever** o checkpoint entregue:
 
 ```bash
-uv run pa2 3 --regimes teacher_forcing --seeds 42 --output-dir outputs/retreino      # ≈2 min em CPU
-# grava outputs/retreino/parte3_ablation/checkpoints/teacher_forcing_s42.pt
+uv run pa2 train-final      # ≈2 min em CPU; grava outputs/retreino/parte3_ablation/checkpoints/teacher_forcing_s42.pt
 ```
 
-O treino usa as trajetórias do ground truth dos vídeos de treino (`pa2/config.yaml` → `parte3`). O retreino reproduz o regime mas **não bit a bit** o checkpoint entregue (threads/máquina; diferença máxima de peso medida ≈ 0,006; a conclusão da Parte 5 se mantém no retreino). Para usar o retreinado no lugar do entregue: `cp outputs/retreino/parte3_ablation/checkpoints/teacher_forcing_s42.pt outputs/checkpoints/final_motion_rnn.pt`. `uv run pa2 2` treina o modelo inicial da Parte 2 (com buracos simulados e época escolhida pela validação), que não é o final.
+(equivale a `uv run pa2 3 --regimes teacher_forcing --seeds 42 --output-dir outputs/retreino`.)
+
+O treino usa as trajetórias do ground truth dos vídeos de treino (`pa2/config.yaml` → `parte3`). O retreino reproduz o regime mas **não bit a bit** o checkpoint entregue (threads/máquina; diferença máxima de peso medida ≈ 0,006; a conclusão da Parte 5 se mantém no retreino). Para usar o retreinado no lugar do entregue, acrescente `--install` (copia para `outputs/checkpoints/final_motion_rnn.pt`). `uv run pa2 2` treina o modelo inicial da Parte 2 (com buracos simulados e época escolhida pela validação), que não é o final.
 
 ### Um comando que avalia
 
@@ -67,7 +68,7 @@ Avalia o modelo final sem retreinar:
 uv run pa2 2 --eval-only --checkpoint outputs/checkpoints/final_motion_rnn.pt --output-dir outputs/final
 ```
 
-Carrega os pesos e roda, nos 7 vídeos com GT (treino e validação), a comparação Parte 1 × velocidade constante × RNN e a análise de reconexão depois de buracos. Gera em `outputs/final/` (reproduz byte a byte o que está versionado):
+Carrega os pesos e roda, nos 7 vídeos com GT (treino e validação), a comparação Parte 1 × velocidade constante × RNN e a análise de reconexão depois de buracos. Gera em `outputs/final/` (`parte2_per_sequence*.csv` e `parte2_reconnection.csv` saem idênticos byte a byte; `parte2_gap_rollout.csv` e `parte2_gap_episodes.csv` diferem só na ordem de 1e-9, ruído de ponto flutuante):
 - `parte2_summary.json` — configuração e médias por split
 - `parte2_per_sequence.csv` / `parte2_per_sequence_tuned.csv` — métricas por vídeo (IDF1, ID switches, fragmentações, contagem)
 - `parte2_comparacao.png` — Parte 1 × velocidade constante × RNN, vídeos ordenados por densidade
@@ -117,17 +118,18 @@ Parte 0 valida o pipeline completo antes de tocar em dados reais, usando vídeos
 Detecções congeladas + associação ingênua por IoU; nada é treinado. Duas fontes de detecção: as públicas do MOT17 (`det/det.txt`; escolhida: **SDP**) e o Faster R-CNN pré-treinado do torchvision (classe `person`, só inferência, NMS próprio). Associação: IoU entre a última caixa de cada track e as detecções do quadro, guloso ou Hungarian, limiar fixo, id novo quando nada casa, track morta após `max_age` quadros sem observação (regras completas em `pa2/association/tracker.py` e em `RELATORY_PART1.md`).
 
 - **Onde:** `pa2/mot17/` (loader, avaliação com distratores), `pa2/association/tracker.py` (rastreador), `pa2/detection/` (NMS próprio, detector torchvision), `pa2/metrics/` (IDF1/switches/fragmentações e AP/mAP), `pa2/part1.py` (pipeline)
-- **Como reproduzir:** `uv run pa2 1` (≈90 s, só com o pacote de anotações de ~10 MB em `data/MOT17/`). Testes: `uv run pytest`.
-- **Detector torchvision:** precisa das imagens (pacote completo de ~5,5 GB em `data/MOT17/`) e, na prática, de GPU. Ligue com `use_torchvision_detector: true` em `parte1` do `config.yaml`; as detecções ficam em cache em `outputs/detections/torchvision/`.
+- **Como reproduzir:** `uv run pa2 1` (≈2 min; lê o cache do torchvision, sem precisar das imagens). Testes: `uv run pytest`.
+- **Detector torchvision** (`use_torchvision_detector: true` em `parte1` do `config.yaml`): Faster R-CNN ResNet50-FPN COCO, **sem fine-tune**, classe `person`, NMS final próprio. Sem o cache, precisa das imagens `img1/` (veja "Dados") e roda em ≈10 min numa GTX 1080 Ti (0,1 s/quadro). Resultado em `RELATORY_PART1.md` §7: pior que o SDP em mAP e IDF1 nos 7 vídeos (IDF1 treino 0,461 × 0,564; validação 0,424 × 0,488), com o mesmo descolamento.
 - **Saídas** (`outputs/`):
   - `parte1_sequences.csv` — estatísticas dos vídeos (densidade, câmera, visibilidade)
   - `parte1_detector_comparison.csv` — DPM vs FRCNN vs SDP (só treino) e a escolha
   - `parte1_association_variants.csv` — 24 variantes da regra de associação
   - `parte1_per_sequence_public.csv` — IDF1, ID switches, fragmentações, erro de contagem, AP/mAP por vídeo
   - `parte1_descolamento.png` — gráfico obrigatório (mAP e IDF1 / razão de ids e switches por id)
+  - `parte1_per_sequence_torchvision.csv`, `parte1_descolamento_torchvision.png`, `detections/torchvision/*.txt` — o mesmo para o detector do torchvision (cache das detecções)
   - `parte1_summary.json` — configuração escolhida
 - **Split por vídeo** (nunca por quadro nem por detector): treino 02, 04, 05, 10, 11; validação 09 (câmera parada, esparso) e 13 (câmera móvel, alta rotatividade de identidades). O `test/` do MOT17 não tem GT.
-- **Status:** Implementado com as detecções públicas. **Pendente:** rodar o detector torchvision (precisa das imagens/GPU).
+- **Status:** Implementado e executado com as **duas** fontes de detecção (públicas SDP e torchvision `person`). Escolha: SDP (melhor em mAP e IDF1 em todos os vídeos).
 
 ### Parte 2 — Trilha A: RNN como modelo de movimento
 
@@ -147,7 +149,7 @@ Escolhemos o **Eixo 2** (teacher forcing → scheduled sampling → free-running
 - **Onde:** `pa2/ablation.py` (runner, avaliação, agregação e figuras); `pa2/models/motion_rnn.py` (agenda de teacher forcing, estatísticas de gradiente, detecção de divergência, `eval_shift`); regimes em `pa2/config.yaml` → `parte3.ablation.regimes`
 - **Como reproduzir:** `uv run pa2 3` (≈25 min em CPU; retomável: pula o que já existe em `outputs/parte3_ablation/runs/`). Para dividir em processos: `uv run pa2 3 --seeds 42`, `--seeds 123`, `--seeds 456`, e depois `uv run pa2 3 --aggregate-only`. `--regimes nome1 nome2` roda só alguns regimes.
 - **O que mede:** deriva (IoU com observações × só com as próprias previsões), IoU após k quadros às cegas, rastreamento nos 7 vídeos (validação = 09 e 13 é o principal), reconexão depois de buracos, e estabilidade do treino (norma do gradiente, passos não finitos, divergência).
-- **Saídas** (em `outputs/parte3_ablation/`): `parte3_summary.csv` (média ± desvio por regime), `parte3_runs.csv` (por seed), `parte3_reconnection.csv`, `parte3_tracking.png`, `parte3_shift.png`, `parte3_blind_rollout.png`, `parte3_grad_norms.png`, `runs/*.json` (brutos), `checkpoints/`
+- **Saídas** (em `outputs/parte3_ablation/`): `parte3_summary.csv` (média ± desvio por regime), `parte3_runs.csv` (por seed), `parte3_reconnection.csv`, `parte3_tracking.png`, `parte3_shift.png`, `parte3_blind_rollout.png`, `parte3_grad_norms.png`, `runs/*.json` (brutos), `checkpoints/` (só os 6 usados adiante: `teacher_forcing` das 3 seeds e `part2_recipe`/`scheduled_sampling`/`free_running` da seed 42; os outros 15 dos 21 treinos são reproduzíveis com `uv run pa2 3`, as métricas deles estão em `runs/*.json`)
 - **Relatório:** `RELATORY_PART3.md`
 - **Status:** Implementado e executado (21 treinos). Resumo: free-running é claramente pior; teacher forcing, scheduled sampling e a receita da Parte 2 não se distinguem no IDF1; sem clipping não há instabilidade neste setup. Detalhes e limitações em `RELATORY_PART3.md`.
 
@@ -185,10 +187,10 @@ Escolhemos o teste de **queda de taxa de quadros**: o vídeo é subamostrado a 1
 deep-learning-assignment-2/
 ├── pyproject.toml              # Dependências e comandos uv
 ├── uv.lock                     # Lockfile determinístico
-├── .gitignore                  # Ignora .venv, caches e notebooks (data/ e outputs/ estão versionados)
+├── .gitignore                  # Ignora .venv, caches, checkpoints do Jupyter e o .zip/.part do MOT17 completo (data/ e outputs/ estão versionados)
 ├── README.md                   # Este arquivo
 ├── PLANO_DE_EXECUCAO.md        # Plano de execução, decisões e backlog
-├── RELATORY_PART0.md ... RELATORY_PART4.md   # Relatório de cada parte: desenho, resultados, limitações
+├── RELATORY_PART0.md ... RELATORY_PART5.md   # Relatório de cada parte: desenho, resultados, limitações
 ├── PA2.md / PA2.pdf            # Enunciado (transcrição em .md e original)
 ├── AI_LOG.md                   # Log de uso de IA (entregável)
 ├── CLAUDE.md                   # Instruções para agentes (aponta para PA2.md e os relatórios)
@@ -200,7 +202,7 @@ deep-learning-assignment-2/
 │
 └── pa2/
     ├── main.py                 # Ponto de entrada: `uv run pa2 <parte>`
-    ├── config.py / config.yaml # Dataclasses e configuração por parte (parte0..parte4)
+    ├── config.py / config.yaml # Dataclasses e configuração por parte (parte0..parte5)
     ├── part0.py                # Parte 0: testes sintéticos
     ├── part1.py                # Parte 1: baseline por quadro (detector público, associação por IoU)
     ├── part2.py                # Parte 2: RNN como modelo de movimento (Trilha A)
@@ -287,12 +289,12 @@ parte0:
 | Parte | Status |
 |-------|--------|
 | Parte 0 — Testes sintéticos | **Concluída e revisada** — gerador com oclusão por profundidade, simulador testado, IDF1/ID switches/fragmentações validados nos 3 casos à mão (`uv run pytest`), baseline fácil com IDF1 ≈ 1 e varredura dos botões. |
-| Parte 1 — Baseline por quadro | **Feita com detecções públicas** (SDP) — falta rodar o detector torchvision (imagens + GPU) |
+| Parte 1 — Baseline por quadro | **Feita** com as duas fontes: detecções públicas (SDP) e Faster R-CNN do torchvision (`RELATORY_PART1.md` §7) |
 | Parte 2 — Trilha A (RNN movimento) | **Feita** — GRU de movimento + análise de reconexão (`RELATORY_PART2.md`); opcional pendente: incerteza/portão adaptativo |
 | Parte 3 — Ablação (Eixo 2) | **Feita** — 7 regimes × 3 seeds, resultados em `RELATORY_PART3.md` |
 | Parte 4 — Galeria de falhas + horizonte de memória | **Feita** — gradiente (conferido por diferenças finitas), oclusões injetadas, 3 falhas, correção negativa (`RELATORY_PART4.md`) |
 | Parte 5 — Teste de estresse (queda de taxa de quadros) | **Feita** — curva de IDF1, diagnósticos e multi-Δt exploratório (`RELATORY_PART5.md`) |
-| Entregáveis | **Prontos:** README (um comando que treina e um que avalia), `metrics.py`, `AI_LOG.md`, `inferencia.ipynb`, checkpoint (`outputs/checkpoints/final_motion_rnn.pt`). Pendente (opcional): detector torchvision da Parte 1 |
+| Entregáveis | **Prontos:** README (um comando que treina e um que avalia), `metrics.py`, `AI_LOG.md`, `inferencia.ipynb`, checkpoint (`outputs/checkpoints/final_motion_rnn.pt`). |
 
 ---
 
@@ -309,7 +311,7 @@ parte0:
 ## Notas
 
 - **Aula dia 30/09/2026:** a Parte 0 foi executada e validada; depois foram feitas e documentadas as Partes 1 a 5 e o notebook de inferência (cada uma com o seu `RELATORY_PARTEn.md`).
-- **MOT17:** o pacote de anotações já está em `data/MOT17/`; o split por vídeo está em `pa2/mot17/loader.py`. As imagens (~5,5 GB) só são necessárias para o detector do torchvision da Parte 1.
+- **MOT17:** o pacote de anotações já está em `data/MOT17/`; o split por vídeo está em `pa2/mot17/loader.py`. As imagens (~5,5 GB) só são necessárias para refazer o cache do detector torchvision (Parte 1) e para o vídeo do notebook com fundo real; não são versionadas.
 - **Reprodutibilidade:** as Partes 0, 1, 2 (`--eval-only`) e 5 foram reexecutadas do zero numa revisão e reproduzem os arquivos versionados; o treino é determinístico só na mesma máquina e com as mesmas threads (ver "Um comando que treina").
 
 ---

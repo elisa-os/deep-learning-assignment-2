@@ -38,7 +38,7 @@ parte1:
     val: []
     test: []
   detector_source: "SDP"
-  use_torchvision_detector: false
+  use_torchvision_detector: true
   batch_size: 1
   epochs: 0
   lr: 1.0e-3

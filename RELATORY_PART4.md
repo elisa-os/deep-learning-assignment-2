@@ -73,8 +73,8 @@ fica boa); não os apresento como a mesma quantidade.
 
 ## 3. Galeria de falhas (vídeos de validação; `parte4_falha_*.png`, `parte4_trechos.csv`, `parte4_falhas.json`)
 Dos 461 buracos de rastreamento nos vídeos 09 e 13, 209 terminam sem manter o id. Três trechos escolhidos por
-**regras fixas** (código em `pa2/analysis/gallery.py::pick_failures`), cada um mostrando quadros com GT (cinza; a
-identidade em foco em preto), tracks coloridas por id (tracejado), a caixa que a **recorrência** previu (magenta,
+**regras fixas** (código em `pa2/analysis/gallery.py::pick_failures`), cada um mostrando quadros com GT (contínuo, colorido pelo id do GT; a
+identidade em foco, grossa e rotulada), tracks coloridas por id da track (tracejado), a caixa que a **recorrência** previu (magenta,
 pontilhada) e, embaixo, centro x, centro y e IoU previsão × GT ao longo do buraco.
 
 **Falha 1 — oclusão longa, câmera parada** (09, GT 3, 18 quadros, visibilidade 0,14, T25 → T35; `…oclusao_longa.png`).

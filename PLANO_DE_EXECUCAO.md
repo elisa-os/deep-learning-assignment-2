@@ -341,7 +341,7 @@ Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
 - [ ] `parte3` do YAML ainda diz LSTM (a Parte 2 usa GRU) → resolvido pela Fase 4.
 
 **Parte 1**
-- [ ] Rodar o detector torchvision (precisa das imagens do MOT17 e de GPU; `torch.cuda.is_available()` já dá `True`).
+- [x] **Feito (02/10):** detector torchvision rodado nos 7 vídeos (`RELATORY_PART1.md` §7; cache em `outputs/detections/torchvision/`).
 
 **Repositório**
 - [ ] `.gitignore`: `data/` e `outputs/` foram liberados no commit `f169e2a` (51 MB de dados, binários que mudam a

@@ -7,7 +7,7 @@
 ## 1. Desenho
 Mesmo modelo da Parte 2 (GRU 64, 19 mil parâmetros) e mesma detecção congelada (SDP). Só o regime de treino muda.
 3 seeds (42, 123, 456), média ± desvio **amostral** (ddof = 1). As seeds são pareadas entre regimes (mesma
-inicialização e mesma sequência de janelas), então comparo também os sinais por seed.
+inicialização e mesma sequência de janelas; o ruído de observação não é idêntico entre regimes: o sorteio do scheduled sampling/free-running consome o mesmo gerador), então comparo também os sinais por seed.
 
 | regime | alimentação no treino | clipping |
 |---|---|---|
@@ -80,7 +80,7 @@ dizer se é um efeito real de generalização ou particularidade desses vídeos.
 - No teacher forcing o clipping nunca atua (norma máxima 0,3 contra limite 1,0): os runs com e sem clipping são
   **idênticos bit a bit**, o que também confirma que a configuração "sem clipping" está de fato desligada.
 - No scheduled sampling atua em ~5 % dos passos, sem efeito mensurável (0,576 contra 0,579).
-- No free-running a norma média é ~0,94 e o clipping atuaria em ~37 % dos passos; ainda assim os runs sem
+- No free-running a norma média é ~0,94 e o clipping atuaria em ~37 % dos passos (37,6 % com clipping ligado; 35,7 % sem); ainda assim os runs sem
   clipping não são piores: IDF1 val 0,492 contra 0,472 (+0,02, mesmo sinal nas 3 seeds: +0,012, +0,008, +0,040,
   mas com n = 3 e desvio de 0,014 isso **não é distinguível de ruído**), IoU igual.
 - A norma do gradiente cresce com o uso das próprias previsões: ~0,1 no teacher forcing, ~1,0 no free-running; no

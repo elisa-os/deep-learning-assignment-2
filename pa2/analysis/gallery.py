@@ -1,8 +1,8 @@
 """Galeria de falhas (Parte 4): escolha dos trechos, medidas de diagnóstico e figuras.
 
 Sem as imagens do MOT17 (só as anotações), cada quadro é desenhado como um fundo vazio com as
-caixas: GT (cinza, a identidade em foco em preto e grossa), tracks previstas coloridas pelo id
-da track (tracejadas) e, em magenta pontilhado, a caixa que a RECORRÊNCIA previu para a track
+caixas: GT (contínuas, coloridas pelo id do GT; a identidade em foco, grossa e rotulada), tracks
+previstas coloridas pelo id da track (tracejadas) e, em magenta pontilhado, a caixa que a RECORRÊNCIA previu para a track
 que a identidade tinha antes do buraco. Embaixo: centro x, centro y e IoU entre a caixa prevista
 pela recorrência e o GT ao longo do tempo, com o buraco sombreado.
 """
@@ -19,8 +19,15 @@ PALETTE = ["#1f77b4", "#2ca02c", "#9467bd", "#8c564b", "#17becf", "#bcbd22", "#e
            "#393b79", "#637939", "#8c6d31", "#843c39", "#7b4173", "#3182bd", "#31a354"]
 
 
+GT_PALETTE = ["#d62728", "#111111", "#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#7f7f7f"]
+
+
 def track_color(tid: int) -> str:
     return PALETTE[int(tid) % len(PALETTE)]
+
+
+def gt_color(gid: int) -> str:
+    return GT_PALETTE[int(gid) % len(GT_PALETTE)]
 
 
 def episode_measures(seq: Sequence, ep: pd.Series, assign, gates, D: np.ndarray, match_gt_det: dict,
@@ -91,7 +98,7 @@ def pick_failures(eps, meas: pd.DataFrame) -> dict[str, int]:
 
 
 def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_all: np.ndarray, path,
-                 title: str, caption: str, save_figure) -> None:
+                 title: str, caption: str, save_figure, diagnosis: str = "") -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -116,8 +123,8 @@ def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_a
         for tr, r in assign[f - 1]:
             rows[f].append((tr, D[r, 1:5]))
 
-    fig = plt.figure(figsize=(2.6 * len(shown), 8.4))
-    gs = fig.add_gridspec(2, len(shown), height_ratios=[1.35, 1])
+    fig = plt.figure(figsize=(2.6 * len(shown), 8.0))
+    gs = fig.add_gridspec(2, len(shown), height_ratios=[1.0, 1])
     for j, f in enumerate(shown):
         ax = fig.add_subplot(gs[0, j])
         ax.set_xlim(xl, xr); ax.set_ylim(yb, yt); ax.set_aspect("equal"); ax.set_facecolor("#f5f5f5")
@@ -127,10 +134,10 @@ def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_a
             if l > xr or l + w < xl or t > yb or t + h < yt:
                 continue
             foc_g = gi == gid
-            ax.add_patch(Rectangle((l, t), w, h, fill=False, ec="k" if foc_g else "#9a9a9a",
-                                   lw=2.4 if foc_g else 0.8))
-            if foc_g:
-                ax.text(l, t - 4, f"GT {gi}", fontsize=7, color="k", va="bottom", clip_on=True)
+            ax.add_patch(Rectangle((l, t), w, h, fill=False, ec=gt_color(gi), lw=2.6 if foc_g else 1.0,
+                                   alpha=1.0 if foc_g else 0.7))
+            ax.text(l, t - 4, f"GT {gi}", fontsize=8 if foc_g else 6, color=gt_color(gi), va="bottom",
+                    fontweight="bold" if foc_g else "normal", clip_on=True)
         for tr, (l, t, w, h) in rows[f]:
             if l > xr or l + w < xl or t > yb or t + h < yt:
                 continue
@@ -169,6 +176,11 @@ def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_a
         if what == "x":
             ax.legend(fontsize=7)
     fig.suptitle(title, fontsize=11, y=0.995)
-    fig.text(0.01, 0.005, caption, fontsize=8, va="bottom", ha="left", wrap=True)
-    fig.subplots_adjust(left=0.05, right=0.99, top=0.93, bottom=0.12, wspace=0.12, hspace=0.35)
+    import textwrap
+    wrap = max(60, int(len(shown) * 20))
+    text = textwrap.fill(caption, wrap) + ("\n" + textwrap.fill("Diagnóstico: " + diagnosis, wrap) if diagnosis else "")
+    fig.text(0.01, 0.005, text, fontsize=8, va="bottom", ha="left")
+    fig.text(0.99, 0.965, "GT: contínuo (cor = id do GT) | predição: tracejado (cor = id da track) | magenta: caixa prevista pela RNN",
+             fontsize=7, ha="right", va="top")
+    fig.subplots_adjust(left=0.05, right=0.99, top=0.91, bottom=0.17, wspace=0.12, hspace=0.2)
     save_figure(fig, path, dpi=110)

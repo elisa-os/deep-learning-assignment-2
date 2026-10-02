@@ -27,6 +27,7 @@ from pa2.association.tracker import track_sequence
 from pa2.config import Config
 from pa2.metrics.detection import drop_ignored_detections, evaluate_detections
 from pa2.mot17 import DETECTORS, Sequence, resolve_split
+from pa2.mot17.loader import load_detections
 from pa2.mot17.evaluate import evaluate_tracks
 from pa2.utils.visualize import save_figure
 
@@ -257,22 +258,23 @@ def _plot_decoupling(df: pd.DataFrame, title: str, path: Path) -> None:
 def _stage_torchvision(cfg: Config, root: Path, videos: list[str], chosen_det: str,
                        meta: pd.DataFrame, assoc: dict, out: Path, device) -> None:
     print("\n--- E. Detector pré-treinado do torchvision ---\n")
-    probe = Sequence(root, videos[0], chosen_det)
-    if not probe.has_images():
-        print(f"  imagens do MOT17 não encontradas em {probe.image_dir}.\n"
+    seqs = {v: Sequence(root, v, chosen_det) for v in videos}
+    caches = {v: out / "detections" / "torchvision" / f"{s.name}.txt" for v, s in seqs.items()}
+    if not all(c.exists() for c in caches.values()) and not seqs[videos[0]].has_images():
+        print(f"  imagens do MOT17 não encontradas em {seqs[videos[0]].image_dir} e o cache de detecções está incompleto.\n"
               "  Baixe o pacote completo (~5,5 GB) em https://motchallenge.net/data/MOT17/ e extraia\n"
-              "  em data/MOT17/ (de preferência com GPU: em CPU leva horas). Pulando esta etapa.")
+              "  em data/MOT17/ (de preferência com GPU: ~10 min na GTX 1080 Ti, horas em CPU). Pulando esta etapa.")
         return
 
-    from pa2.detection.torchvision_person import TorchvisionPersonDetector
-
-    detector = TorchvisionPersonDetector(device=device)
-    seqs = {v: Sequence(root, v, chosen_det) for v in videos}
+    detector = None                      # só carrega os pesos se faltar algum cache
     dets = {}
     for v, s in seqs.items():
-        cache = out / "detections" / "torchvision" / f"{s.name}.txt"
+        cache = caches[v]
         print(f"  {s.name}: {'lendo cache' if cache.exists() else 'detectando'} -> {cache}")
-        raw = detector.detect_sequence(s, cache, progress=None)
+        if not cache.exists() and detector is None:
+            from pa2.detection.torchvision_person import TorchvisionPersonDetector
+            detector = TorchvisionPersonDetector(device=device)
+        raw = detector.detect_sequence(s, cache, progress=None) if detector else load_detections(cache)
         dets[v], _ = drop_ignored_detections(raw, s.gt_pedestrians(), s.gt_distractors())
     src = Source("torchvision", seqs, dets)
     train = [v for v in videos if meta[meta.sequence == f"MOT17-{v}"].iloc[0]["split"] == "train"]

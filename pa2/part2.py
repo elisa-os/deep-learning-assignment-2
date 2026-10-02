@@ -356,7 +356,8 @@ def run_parte2(cfg: Config, device: torch.device) -> None:
         json.dump({"detector": detector, "min_conf": min_conf, "association_common": base,
                    "association_tuned": best_assoc, "split": split,
                    "model": {**model.config, "params": sum(p.numel() for p in model.parameters())},
-                   "settings": settings.__dict__,
+                   "settings": (settings.__dict__ if hist is not None
+                                else "n/a: checkpoint carregado (as configurações do treino não são lidas do YAML)"),
                    "summary_common": sm.to_dict(orient="records"),
                    "summary_tuned": smt.to_dict(orient="records"),
                    "gap_rollout_iou": {sp: {m: list(map(float, curves[sp][m])) for m in METHODS}

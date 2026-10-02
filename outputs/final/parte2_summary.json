@@ -46,31 +46,7 @@
     "use_delta_t": true,
     "params": 19012
   },
-  "settings": {
-    "epochs": 30,
-    "steps_per_epoch": 100,
-    "batch_size": 64,
-    "lr": 0.002,
-    "window_T": 32,
-    "tf_ratio": 1.0,
-    "tf_schedule": "constant",
-    "tf_end": 0.0,
-    "gap_prob": 0.5,
-    "max_gap": 20,
-    "obs_noise": [
-      0.06,
-      0.025,
-      0.08,
-      0.045
-    ],
-    "clip": true,
-    "clip_value": 1.0,
-    "seed": 42,
-    "select": "best",
-    "val_tf_ratio": 1.0,
-    "val_gap_prob": 0.5,
-    "val_max_gap": 20
-  },
+  "settings": "n/a: checkpoint carregado (modelo final = teacher_forcing_s42: GRU 64, gap_prob 0, 20 épocas, última época; ver RELATORY_PART2.md §6)",
   "summary_common": [
     {
       "method": "static",
@@ -294,7 +270,7 @@
         0.4551031738875621
       ]
     },
-    "valida\u00e7\u00e3o": {
+    "validação": {
       "static": [
         0.7389032797501078,
         0.6286605370508338,

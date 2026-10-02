@@ -195,6 +195,22 @@ def _swap_partners(seq: Sequence, tracks: list[dict], eps: pd.DataFrame, iou: fl
     return out
 
 
+FAILURE_TITLES = {"oclusao_longa": "Falha 1 — oclusão longa (câmera parada)",
+                  "buraco_curto_camera_movel": "Falha 2 — buraco curto (câmera móvel)",
+                  "troca_entre_pessoas": "Falha 3 — troca entre duas pessoas"}
+# resumo dos diagnósticos de RELATORY_PART4.md §3 (os números vêm de parte4_falhas.json / parte4_trechos.csv)
+FAILURE_DIAGNOSES = {
+    "oclusao_longa": "não é falta de horizonte (buraco < N50 ≈ 21): a RNN integrou às cegas uma velocidade mal lida "
+                     "(pessoa quase parada, visibilidade baixa), a caixa derivou para o lado errado, o IoU saiu do portão "
+                     "e nasceu uma track nova (a antiga fica viva, fantasma).",
+    "buraco_curto_camera_movel": "não é oclusão (pessoa 83% visível): o detector falhou 4 quadros; pessoa pequena e rápida "
+                                 "(0,39 larguras/quadro, cauda rara no treino); a RNN encolhe a velocidade e o IoU vai a 0 em 1 quadro.",
+    "troca_entre_pessoas": "não é problema de memória: a previsão ainda estava no portão (IoU 0,47), mas três pessoas lado a lado "
+                           "com caixas quase sobrepostas; a associação por IoU deu a detecção à track vizinha. "
+                           "Geometria sozinha não separa; caso da Trilha B (aparência).",
+}
+
+
 def stage_c_gallery(root, val, detector, min_conf, model, assoc, out: Path):
     print("\n--- C. Galeria de falhas (modelo final, vídeos de validação) ---\n")
     src = Source.public(root, val, detector)
@@ -227,7 +243,7 @@ def stage_c_gallery(root, val, detector, min_conf, model, assoc, out: Path):
                    f"{m['gate_iou_at_end'] if m['gate_iou_at_end'] is None else round(m['gate_iou_at_end'], 2)}; "
                    f"track original viva no fim: {m['track_alive_at_end']}.")
         draw_failure(seq, m, assign, gates, D, gtb, seq.gt_pedestrians(), out / f"parte4_falha_{key}.png",
-                     f"Falha: {key.replace('_', ' ')}", caption, save_figure)
+                     FAILURE_TITLES[key], caption, save_figure, FAILURE_DIAGNOSES[key])
         chosen[key] = m
         print(f"  {key}: " + caption)
     with open(out / "parte4_falhas.json", "w") as f:
