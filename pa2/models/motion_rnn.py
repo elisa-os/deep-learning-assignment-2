@@ -25,7 +25,7 @@ nos passos em que o modelo está "cego" (buraco de observação).
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np

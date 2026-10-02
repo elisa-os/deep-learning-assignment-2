@@ -151,7 +151,6 @@ def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_a
     gx = [(f, gates[f - 1][tid][0] + gates[f - 1][tid][2] / 2, gates[f - 1][tid][1] + gates[f - 1][tid][3] / 2,
            compute_iou(gates[f - 1][tid], gt_frames[(f, gid)]) if (f, gid) in gt_frames else np.nan)
           for f in fr if tid is not None and tid in gates[f - 1]]
-    third = max(1, len(shown) // 3)
     spans = [(0, 2), (2, 4), (4, len(shown))]
     for (a, b), what in zip(spans, ("x", "y", "iou")):
         ax = fig.add_subplot(gs[1, a:b])

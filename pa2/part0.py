@@ -76,7 +76,7 @@ def run_parte0(cfg: Config, device: torch.device) -> None:
     _check_detector_simulator(cfg, seq)
     _check_metrics()
     easy_rows = _check_baseline_easy(cfg, output_dir)
-    sweep = _run_parameter_sweep(cfg, output_dir)
+    _run_parameter_sweep(cfg, output_dir)
 
     writer = PerSequenceMetricsWriter(output_dir / "metrics")
     for r in easy_rows:

@@ -22,23 +22,25 @@ dependencies = [
     "scikit-image>=0.26.0",
     "scikit-learn>=1.9.0",
     "scipy>=1.0",
-    "torch>=2.6.0",
-    "torchvision>=0.20.0",
+    "torch>=2.6.0,<2.8",
+    "torchvision>=0.20.0,<0.23",
     "tqdm>=4.66.0",
 ]
 
 [project.scripts]
 pa2 = "pa2.main:main"
 
+[tool.uv]
+package = true
+
 [tool.uv.build-backend]
 module-root = "."
 module-name = "pa2"
 
-tool.uv.package = true
-
+# PyTorch com CUDA 11.8 em Linux e Windows; em macOS (sem wheels nesse índice) usa o PyPI.
 [tool.uv.sources]
-torch = { index = "pytorch-cu118" }
-torchvision = { index = "pytorch-cu118" }
+torch = { index = "pytorch-cu118", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }
+torchvision = { index = "pytorch-cu118", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }
 
 [[tool.uv.index]]
 name = "pytorch-cu118"
@@ -47,5 +49,9 @@ explicit = true
 
 [dependency-groups]
 dev = [
+    "ipykernel>=7.4.0",
+    "nbclient>=0.11.0",
+    "nbconvert>=7.17.1",
+    "nbformat>=5.11.1",
     "pytest>=9.1.1",
 ]

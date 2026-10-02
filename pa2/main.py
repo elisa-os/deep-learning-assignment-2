@@ -1,12 +1,13 @@
 """Ponto de entrada principal do PA2.
 
 Uso:
-    uv run pa2                     # roda a parte configurada (default: parte 0)
     uv run pa2 0                   # Parte 0 — testes sintéticos
     uv run pa2 1                   # Parte 1 — baseline por quadro
-    uv run pa2 2                   # Parte 2 — RNN memória temporal
-    uv run pa2 3                   # Parte 3 — ablações
-    uv run pa2 0 --eval-only       # avalia sem retreinar (quando checkpoint existe)
+    uv run pa2 2                   # Parte 2 — RNN como modelo de movimento (Trilha A)
+    uv run pa2 3                   # Parte 3 — ablação (Eixo 2: regime de treino)
+    uv run pa2 4                   # Parte 4 — horizonte de memória, galeria de falhas, correção
+    uv run pa2 5                   # Parte 5 — teste de estresse (queda de taxa de quadros)
+    uv run pa2 2 --eval-only --checkpoint <ckpt> --output-dir <dir>   # reavalia sem retreinar
 """
 
 from __future__ import annotations

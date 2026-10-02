@@ -19,6 +19,7 @@ o split deve ser feito por **vídeo** (02, 04, ...), nunca por detector.
 from __future__ import annotations
 
 import configparser
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,6 +70,36 @@ class Sequence:
         self.info = read_seqinfo(self.dir / "seqinfo.ini")
         self._gt: np.ndarray | None = None
         self._det: np.ndarray | None = None
+
+    @classmethod
+    def from_dir(cls, path: str | Path) -> "Sequence":
+        """Abre uma sequência em formato MOTChallenge a partir da PASTA (qualquer lugar do disco).
+
+        Contrato: a pasta tem ``seqinfo.ini`` e, para detecções, ``det/det.txt`` e/ou as imagens em
+        ``img1/``; ``gt/gt.txt`` é opcional (sem GT não há métricas, só contagem). O nome da pasta
+        ``MOT17-09-SDP`` dá ``video = "09"`` e ``detector = "SDP"``; outros nomes são aceitos.
+        """
+        path = Path(path)
+        if not (path / "seqinfo.ini").exists():
+            raise FileNotFoundError(
+                f"{path} não parece uma sequência MOTChallenge: falta seqinfo.ini "
+                "(esperado: seqinfo.ini + det/det.txt e/ou img1/, gt/gt.txt opcional)")
+        obj = cls.__new__(cls)
+        m = re.match(r"^(?P<ds>[A-Za-z]+\d*)-(?P<vid>\d+)(?:-(?P<det>[A-Za-z]+))?$", path.name)
+        obj.video = m.group("vid") if m else path.name
+        obj.detector = (m.group("det") or "?") if m else "?"
+        obj.name = f"{m.group('ds')}-{m.group('vid')}" if m else path.name
+        obj.dir = path
+        obj.info = read_seqinfo(path / "seqinfo.ini")
+        obj._gt = None
+        obj._det = None
+        return obj
+
+    def has_gt(self) -> bool:
+        return (self.dir / "gt" / "gt.txt").exists()
+
+    def has_det(self) -> bool:
+        return (self.dir / "det" / "det.txt").exists()
 
     # ── dados ────────────────────────────────────────────────────────────────
     @property

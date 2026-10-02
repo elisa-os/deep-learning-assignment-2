@@ -44,7 +44,7 @@ VARIANT_GRID = {
 # ─────────────────────────────────────────────────────────────────────────────
 # utilidades
 # ─────────────────────────────────────────────────────────────────────────────
-class _Source:
+class Source:
     """Detecções (já sem as que casam com distratores) de um conjunto de vídeos."""
 
     def __init__(self, name: str, seqs: dict[str, Sequence], dets: dict[str, np.ndarray]):
@@ -53,7 +53,7 @@ class _Source:
         self.dets = dets
 
     @classmethod
-    def public(cls, root: Path, videos: list[str], detector: str) -> "_Source":
+    def public(cls, root: Path, videos: list[str], detector: str) -> "Source":
         seqs = {v: Sequence(root, v, detector) for v in videos}
         dets = {}
         for v, s in seqs.items():
@@ -67,7 +67,7 @@ def _candidate_thresholds(dets: dict[str, np.ndarray]) -> list[float]:
     return sorted({float(x) for x in np.round(np.quantile(scores, np.linspace(0, 0.95, 20)), 3)})
 
 
-def _best_f1_threshold(src: _Source, videos: list[str]) -> tuple[float, dict]:
+def best_f1_threshold(src: Source, videos: list[str]) -> tuple[float, dict]:
     """Limiar de score que maximiza o F1 (IoU 0.5) das detecções somadas nos ``videos``."""
     best = (-1.0, -np.inf, {})
     for thr in _candidate_thresholds({v: src.dets[v] for v in videos}):
@@ -82,7 +82,7 @@ def _best_f1_threshold(src: _Source, videos: list[str]) -> tuple[float, dict]:
     return best[1], best[2]
 
 
-def _run_tracker(src: _Source, video: str, assoc: dict, min_conf: float) -> dict:
+def _run_tracker(src: Source, video: str, assoc: dict, min_conf: float) -> dict:
     seq = src.seqs[video]
     tracks = track_sequence(src.dets[video], seq.info.seq_length, min_conf=min_conf, **assoc)
     return evaluate_tracks(seq, tracks)
@@ -91,7 +91,7 @@ def _run_tracker(src: _Source, video: str, assoc: dict, min_conf: float) -> dict
 IDF1_TIE_MARGIN = 0.005
 
 
-def _pick_variant(variants: pd.DataFrame) -> dict:
+def pick_variant(variants: pd.DataFrame) -> dict:
     """Melhor variante no TREINO: entre as que ficam a até ``IDF1_TIE_MARGIN`` do maior
     IDF1 (diferenças menores que isso são ruído entre vídeos), a com menos ID switches."""
     near = variants[variants["IDF1_train"] >= variants["IDF1_train"].max() - IDF1_TIE_MARGIN]
@@ -128,8 +128,8 @@ def _stage_choose_detector(root: Path, train: list[str], out: Path) -> tuple[str
     rows = []
     thresholds: dict[str, float] = {}
     for det in DETECTORS:
-        src = _Source.public(root, train, det)
-        thr, pr = _best_f1_threshold(src, train)
+        src = Source.public(root, train, det)
+        thr, pr = best_f1_threshold(src, train)
         thresholds[det] = thr
         ap50, mapv, idf1, ratio, sw = [], [], [], [], []
         for v in train:
@@ -153,7 +153,7 @@ def _stage_choose_detector(root: Path, train: list[str], out: Path) -> tuple[str
     return str(best), thresholds
 
 
-def _stage_variants(src: _Source, train: list[str], val: list[str], min_conf: float,
+def _stage_variants(src: Source, train: list[str], val: list[str], min_conf: float,
                     out: Path) -> pd.DataFrame:
     print("\n--- C. Variantes da regra de associação ---\n")
     keys = list(VARIANT_GRID)
@@ -176,7 +176,7 @@ def _stage_variants(src: _Source, train: list[str], val: list[str], min_conf: fl
     return df
 
 
-def _evaluate_source(src: _Source, assoc: dict, min_conf: float, meta: pd.DataFrame,
+def _evaluate_source(src: Source, assoc: dict, min_conf: float, meta: pd.DataFrame,
                      score_thr_for_pr: float) -> pd.DataFrame:
     rows = []
     for v in src.seqs:
@@ -274,9 +274,9 @@ def _stage_torchvision(cfg: Config, root: Path, videos: list[str], chosen_det: s
         print(f"  {s.name}: {'lendo cache' if cache.exists() else 'detectando'} -> {cache}")
         raw = detector.detect_sequence(s, cache, progress=None)
         dets[v], _ = drop_ignored_detections(raw, s.gt_pedestrians(), s.gt_distractors())
-    src = _Source("torchvision", seqs, dets)
+    src = Source("torchvision", seqs, dets)
     train = [v for v in videos if meta[meta.sequence == f"MOT17-{v}"].iloc[0]["split"] == "train"]
-    thr, pr = _best_f1_threshold(src, train)
+    thr, pr = best_f1_threshold(src, train)
     print(f"  limiar de score (melhor F1 no treino): {thr:.3f}  (P={pr['precision']:.3f}, "
           f"R={pr['recall']:.3f})")
     min_conf = cfg.association.min_conf if cfg.association.min_conf is not None else thr
@@ -311,11 +311,11 @@ def run_parte1(cfg: Config, device: torch.device) -> None:
     min_conf = cfg.association.min_conf if cfg.association.min_conf is not None else thr
     print(f"  fonte de detecções do resto do PA: {detector} (score >= {min_conf:.3f})")
 
-    src = _Source.public(root, train + val, detector)
+    src = Source.public(root, train + val, detector)
     variants = _stage_variants(src, train, val, min_conf, out)
 
     assoc = _assoc_from_cfg(cfg)
-    picked = _pick_variant(variants)
+    picked = pick_variant(variants)
     print(f"\n  regra de escolha: maior IDF1 de treino; empate (±{IDF1_TIE_MARGIN}) -> menos ID switches")
     print(f"  melhor variante pela regra: {picked}")
     if picked != assoc:

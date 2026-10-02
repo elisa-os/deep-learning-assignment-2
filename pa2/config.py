@@ -39,7 +39,6 @@ class DataConfig:
     data_dir: str | None = None
     n_sequences: int = 500
     batch_size: int = 1
-    num_workers: int = 0
     sequence_split: dict[str, list[str]] | None = None  # {train: [...], val: [...], test: [...]}
 
 
@@ -47,7 +46,6 @@ class DataConfig:
 class ModelConfig:
     """Configuração do modelo (RNN de movimento, Trilha A)."""
     rnn_type: str = "LSTM"                # LSTM | GRU
-    input_size: int = 10                 # nº de features por passo (ver models/motion_rnn.py)
     hidden_size: int = 64
     num_layers: int = 1
     dropout: float = 0.0
@@ -98,6 +96,18 @@ class AblationConfig:
 
 
 @dataclass
+class StressConfig:
+    """Teste de estresse da Parte 5 (queda de taxa de quadros)."""
+    rates: list[int] = field(default_factory=lambda: [1, 2, 5])   # k de cada taxa 1/k (1 = original)
+    time_matched_max_age: bool = True      # também avalia com max_age = round(max_age / k) (mesmo horizonte em segundos)
+    multi_dt: bool = True                  # retreino multi-Δt exploratório (fora da regra "sem retreinar")
+    multi_dt_strides: list[int] = field(default_factory=lambda: [1, 2, 5])
+    multi_dt_seeds: list[int] = field(default_factory=lambda: [42, 123, 456])
+    # checkpoints de Δt = 1 já treinados (Parte 3), com {seed}; servem de comparação para o multi-Δt
+    stride1_checkpoints: str = "outputs/parte3_ablation/checkpoints/teacher_forcing_s{seed}.pt"
+
+
+@dataclass
 class Config:
     seed: int = 42
     output_dir: str = "outputs"
@@ -110,6 +120,7 @@ class Config:
     rnn: RNNConfig = field(default_factory=RNNConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     ablation: AblationConfig = field(default_factory=AblationConfig)
+    stress: StressConfig = field(default_factory=StressConfig)
 
     # Detector público do MOT17 (Parte 1+)
     detector_source: str | None = "FRCNN"  # DPM | FRCNN | SDP (None = escolher na Parte 1)
@@ -171,8 +182,8 @@ def load_config(
                       "occlusion_duration_min", "occlusion_duration_max", "velocity_scale",
                       "noise_level", "contrast_scale", "detector_drop_rate",
                       "detector_noise", "detector_fp_rate"}
-        data_fields = {"synthetic", "data_dir", "batch_size", "num_workers", "sequence_split"}
-        model_fields = {"rnn_type", "input_size", "hidden_size", "num_layers", "dropout",
+        data_fields = {"synthetic", "data_dir", "batch_size", "sequence_split"}
+        model_fields = {"rnn_type", "hidden_size", "num_layers", "dropout",
                         "use_delta_t", "predict_uncertainty"}
         assoc_fields = {"method", "iou_threshold", "max_age", "min_hits", "min_conf"}
         rnn_fields = {"window_T", "teacher_forcing_ratio", "gap_prob", "max_gap", "obs_noise",
@@ -195,6 +206,7 @@ def load_config(
 
         # Ablation é mais complexo — lê como dict e converte depois
         ablation_raw = parte_section.get("ablation", {})
+        stress_raw = parte_section.get("stress") or {}
 
         seed = parte_section.get("seed", seed)
         out_dir_raw = parte_section.get("output_dir", out_dir_raw)
@@ -208,6 +220,7 @@ def load_config(
         rnn_raw = {}
         train_raw = {}
         ablation_raw = {}
+        stress_raw = {}
 
         if "output_dir" in raw:
             out_dir_raw = raw["output_dir"]
@@ -239,6 +252,7 @@ def load_config(
             seeds=ablation_raw.get("seeds", [42, 123, 456]),
             regimes=ablation_raw.get("regimes", []),
         ),
+        stress=StressConfig(**{k: v for k, v in stress_raw.items() if k in StressConfig.__dataclass_fields__}),
         detector_source=detector_source,
         use_torchvision_detector=use_torchvision_detector,
     )

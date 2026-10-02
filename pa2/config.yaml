@@ -21,7 +21,6 @@ parte0:
   noise_level: 0.0
   contrast_scale: 1.0
   batch_size: 1
-  num_workers: 0
   epochs: 5
   lr: 1.0e-3
   checkpoint: null
@@ -41,7 +40,6 @@ parte1:
   detector_source: "SDP"
   use_torchvision_detector: false
   batch_size: 1
-  num_workers: 0
   epochs: 0
   lr: 1.0e-3
   checkpoint: null
@@ -66,7 +64,6 @@ parte2:
   detector_source: "SDP"
   use_torchvision_detector: false
   batch_size: 64
-  num_workers: 0
   epochs: 30
   steps_per_epoch: 100
   lr: 2.0e-3
@@ -76,7 +73,6 @@ parte2:
   grad_clip_value: 1.0
   rnn:
     type: "GRU"          # RNN | GRU | LSTM
-    input_size: 10
     hidden_size: 64
     num_layers: 1
     dropout: 0.0
@@ -111,7 +107,6 @@ parte3:
     test: []
   detector_source: "SDP"
   batch_size: 64
-  num_workers: 0
   epochs: 20
   steps_per_epoch: 100
   lr: 2.0e-3
@@ -119,7 +114,6 @@ parte3:
   grad_clip_value: 1.0
   rnn:
     type: "GRU"
-    input_size: 10
     hidden_size: 64
     num_layers: 1
     dropout: 0.0
@@ -196,3 +190,44 @@ parte4:
     min_conf: null
   window_T: 32
   obs_noise: [0.06, 0.025, 0.08, 0.045]
+
+# ── Parte 5 — Teste de estresse: queda de taxa de quadros ────────
+# Sem retreinar, em cima do modelo final: o vídeo é subamostrado a 1/k e o modelo roda como está. A curva
+# principal usa a regra de associação inalterada; `time_matched_max_age` acrescenta uma variante com
+# max_age = round(30 / k) (mesmo horizonte em segundos). O bloco `multi_dt` é um experimento EXPLORATÓRIO,
+# fora da regra "sem retreinar": o mesmo GRU treinado com Δt em {1, 2, 5}, comparado com os checkpoints de
+# Δt = 1 da Parte 3. Hiperparâmetros de treino = os do regime teacher_forcing da Parte 3.
+parte5:
+  synthetic: false
+  data_dir: data/MOT17
+  sequence_split:
+    train: []
+    val: []
+    test: []
+  detector_source: "SDP"
+  checkpoint: outputs/checkpoints/final_motion_rnn.pt
+  batch_size: 64
+  epochs: 20
+  steps_per_epoch: 100
+  lr: 2.0e-3
+  gradient_clipping: true
+  grad_clip_value: 1.0
+  rnn:
+    type: "GRU"
+    hidden_size: 64
+    use_delta_t: true
+  association:           # a mesma regra das Partes 1 a 4
+    method: "greedy"
+    iou_threshold: 0.3
+    max_age: 30
+    min_hits: 3
+    min_conf: null
+  window_T: 32
+  obs_noise: [0.06, 0.025, 0.08, 0.045]
+  stress:
+    rates: [1, 2, 5]
+    time_matched_max_age: true
+    multi_dt: true
+    multi_dt_strides: [1, 2, 5]
+    multi_dt_seeds: [42, 123, 456]
+    stride1_checkpoints: "outputs/parte3_ablation/checkpoints/teacher_forcing_s{seed}.pt"

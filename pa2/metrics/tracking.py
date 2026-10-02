@@ -78,7 +78,7 @@ def iou_matrix(boxes_a: np.ndarray, boxes_b: np.ndarray) -> np.ndarray:
 # ─────────────────────────────────────────────────────────────────────────────
 # Conversão de formato
 # ─────────────────────────────────────────────────────────────────────────────
-def _parse_tracks_to_frames(tracks: list[dict[str, Any]]) -> tuple[FrameDict, int]:
+def parse_tracks_to_frames(tracks: list[dict[str, Any]]) -> tuple[FrameDict, int]:
     """Converte lista de tracks MOT em ``{frame: {id: caixa}}`` e devolve o maior quadro."""
     frames: FrameDict = defaultdict(dict)
     max_frame = 0
@@ -92,7 +92,7 @@ def _parse_tracks_to_frames(tracks: list[dict[str, Any]]) -> tuple[FrameDict, in
     return dict(frames), max_frame
 
 
-def _frame_range(tracks_pred: FrameDict, tracks_gt: FrameDict, num_frames: int | None) -> list[int]:
+def frame_range(tracks_pred: FrameDict, tracks_gt: FrameDict, num_frames: int | None) -> list[int]:
     """Quadros a percorrer: união dos quadros presentes (ou 1..num_frames se informado)."""
     if num_frames is not None:
         return list(range(1, num_frames + 1))
@@ -144,7 +144,7 @@ def match_global(
     Maximiza o número total de quadros coincidentes (IDTP) com Hungarian.
     Retorna ``(pred_id -> gt_id, preds_sem_par, gts_sem_par)``.
     """
-    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
+    frames = frame_range(tracks_pred, tracks_gt, num_frames)
     pred_ids, gt_ids, counts = _idtp_matrix(tracks_pred, tracks_gt, iou_threshold, frames)
     if not pred_ids or not gt_ids:
         return {}, set(pred_ids), set(gt_ids)
@@ -169,7 +169,7 @@ def compute_idf1(
 
     Se ``pred_to_gt`` for dado, usa essa atribuição em vez de recalculá-la.
     """
-    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
+    frames = frame_range(tracks_pred, tracks_gt, num_frames)
     pred_ids, gt_ids, counts = _idtp_matrix(tracks_pred, tracks_gt, iou_threshold, frames)
 
     n_pred_boxes = sum(len(tracks_pred.get(f, {})) for f in frames)
@@ -209,7 +209,7 @@ def compute_idf1(
 # ─────────────────────────────────────────────────────────────────────────────
 # Matching quadro a quadro (CLEAR-MOT): ID switches, fragmentações, FP/FN
 # ─────────────────────────────────────────────────────────────────────────────
-def _clear_match(
+def clear_match(
     tracks_pred: FrameDict,
     tracks_gt: FrameDict,
     iou_threshold: float,
@@ -291,8 +291,8 @@ def count_id_switches(
     num_frames: int | None = None,
 ) -> int:
     """Número de ID switches (ver docstring do módulo)."""
-    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
-    return int(_clear_match(tracks_pred, tracks_gt, iou_threshold, frames)["id_switches"])
+    frames = frame_range(tracks_pred, tracks_gt, num_frames)
+    return int(clear_match(tracks_pred, tracks_gt, iou_threshold, frames)["id_switches"])
 
 
 def count_fragmentations(
@@ -302,8 +302,8 @@ def count_fragmentations(
     num_frames: int | None = None,
 ) -> int:
     """Número de fragmentações (rastreado -> perdido -> rastreado, por identidade GT)."""
-    frames = _frame_range(tracks_pred, tracks_gt, num_frames)
-    return int(_clear_match(tracks_pred, tracks_gt, iou_threshold, frames)["fragmentations"])
+    frames = frame_range(tracks_pred, tracks_gt, num_frames)
+    return int(clear_match(tracks_pred, tracks_gt, iou_threshold, frames)["fragmentations"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -322,12 +322,12 @@ def evaluate_tracking_sequence(
     """
     tracks_gt = [d for d in tracks_gt if d.get("conf", 1.0) > 0]
 
-    pred_frames, _ = _parse_tracks_to_frames(tracks_pred)
-    gt_frames, _ = _parse_tracks_to_frames(tracks_gt)
+    pred_frames, _ = parse_tracks_to_frames(tracks_pred)
+    gt_frames, _ = parse_tracks_to_frames(tracks_gt)
     frames = sorted(set(pred_frames) | set(gt_frames))
     num_frames = max(frames) if frames else 0
 
-    clear = _clear_match(pred_frames, gt_frames, iou_threshold, frames)
+    clear = clear_match(pred_frames, gt_frames, iou_threshold, frames)
     pred_to_gt, _, _ = match_global(pred_frames, gt_frames, iou_threshold, num_frames or None)
     idf1, det = compute_idf1(pred_frames, gt_frames, pred_to_gt, iou_threshold, num_frames or None)
 

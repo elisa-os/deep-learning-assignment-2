@@ -13,6 +13,9 @@ __pycache__/
 # Notebooks
 .ipynb_checkpoints/
 
+# Vídeos completos gerados pelo notebook de inferência (o GIF e o txt de tracks são versionados)
+outputs/inferencia/*.mp4
+
 # IDEs
 .vscode/
 .idea/

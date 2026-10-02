@@ -1,7 +1,7 @@
 """Reconexão de identidades depois de um buraco de rastreamento (análise da Parte 2).
 
 Para cada identidade verdadeira, a vida inteira é uma sequência de quadros; em cada quadro a
-identidade está casada com um id previsto (matching CLEAR-MOT de ``tracking._clear_match``)
+identidade está casada com um id previsto (matching CLEAR-MOT de ``tracking.clear_match``)
 ou não. Um **buraco** é uma sequência máxima de quadros sem casamento *entre* dois quadros
 casados. O desfecho do buraco é:
 
@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from pa2.metrics.detection import drop_ignored_detections
-from pa2.metrics.tracking import _clear_match, _frame_range, _parse_tracks_to_frames
+from pa2.metrics.tracking import clear_match, frame_range, parse_tracks_to_frames
 from pa2.mot17.loader import Sequence, to_mot_records
 
 BUCKETS = ((1, 5), (6, 15), (16, 30), (31, 10**9))
@@ -42,10 +42,10 @@ def gap_episodes(seq: Sequence, tracks: list[dict], iou_threshold: float = 0.5) 
         _, keep = drop_ignored_detections(arr, gt, seq.gt_distractors(), iou_threshold,
                                           boxes_cols=slice(2, 6))
         tracks = [t for t, k in zip(tracks, keep) if k]
-    pred_frames, _ = _parse_tracks_to_frames(tracks)
-    gt_frames, _ = _parse_tracks_to_frames(to_mot_records(gt))
-    frames = _frame_range(pred_frames, gt_frames, None)
-    matches = _clear_match(pred_frames, gt_frames, iou_threshold, frames)["matches"]
+    pred_frames, _ = parse_tracks_to_frames(tracks)
+    gt_frames, _ = parse_tracks_to_frames(to_mot_records(gt))
+    frames = frame_range(pred_frames, gt_frames, None)
+    matches = clear_match(pred_frames, gt_frames, iou_threshold, frames)["matches"]
 
     vis = {(int(f), int(i)): v for f, i, v in zip(gt[:, 0], gt[:, 1], gt[:, 6])}
     life: dict[int, list[int]] = {}

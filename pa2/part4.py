@@ -23,18 +23,17 @@ import torch
 from pa2.analysis.memory import (blind_displacement_regression, bootstrap_n50, detection_gap_runs, gradient_horizon,
                                  horizon_summary, n50_curve, survival_experiment, survival_table, visibility_runs)
 from pa2.analysis.gallery import (draw_failure, episode_measures, gt_boxes_by_frame, pick_failures)
-from pa2.analysis.runner import match_gt_to_dets, records_from_assign, run_trace, sorted_dets
+from pa2.analysis.runner import records_from_assign, run_trace, sorted_dets
 from pa2.metrics.reconnection import gap_episodes
-from pa2.metrics.tracking import _clear_match, _frame_range, _parse_tracks_to_frames
-from pa2.mot17.evaluate import evaluate_tracks
+from pa2.metrics.tracking import clear_match, frame_range, parse_tracks_to_frames
 from pa2.mot17.loader import to_mot_records
 from pa2.association.motion import ConstantVelocityMotion, RNNMotion, StaticMotion
 from pa2.config import Config
 from pa2.models import load_checkpoint
 from pa2.mot17 import Sequence, resolve_split
 from pa2.mot17.trajectories import load_segments
-from pa2.part1 import _best_f1_threshold, _Source
-from pa2.part2 import _track, gap_rollout_iou
+from pa2.part1 import best_f1_threshold, Source
+from pa2.part2 import track_and_evaluate, gap_rollout_iou
 from pa2.utils.visualize import save_figure
 
 SURVIVAL_NS = (0, 1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 60)
@@ -137,7 +136,7 @@ def stage_a_gradient(cfg: Config, seg_val, sigma, out: Path) -> dict:
 
 def stage_b_survival(root, videos, detector, min_conf, model, out: Path, reps: int = 4):
     print("\n--- B. Horizonte empírico: oclusões injetadas ---\n")
-    src = _Source.public(root, videos, detector)
+    src = Source.public(root, videos, detector)
     motions = {"static": lambda s: StaticMotion(), "const_vel": lambda s: ConstantVelocityMotion(),
                "rnn": lambda s: RNNMotion(model, (s.info.im_width, s.info.im_height))}
     assoc = dict(method="greedy", iou_threshold=0.3, max_age=SURVIVAL_ASSOC_MAX_AGE, min_hits=3)
@@ -179,10 +178,10 @@ def stage_b_survival(root, videos, detector, min_conf, model, out: Path, reps: i
 
 def _swap_partners(seq: Sequence, tracks: list[dict], eps: pd.DataFrame, iou: float = 0.5) -> list:
     """Para cada buraco com id novo: a OUTRA identidade do GT que tinha esse id pouco antes (ou None)."""
-    pred_f, _ = _parse_tracks_to_frames(tracks)
-    gt_f, _ = _parse_tracks_to_frames(to_mot_records(seq.gt_pedestrians()))
-    frames = _frame_range(pred_f, gt_f, None)
-    matches = _clear_match(pred_f, gt_f, iou, frames)["matches"]
+    pred_f, _ = parse_tracks_to_frames(tracks)
+    gt_f, _ = parse_tracks_to_frames(to_mot_records(seq.gt_pedestrians()))
+    frames = frame_range(pred_f, gt_f, None)
+    matches = clear_match(pred_f, gt_f, iou, frames)["matches"]
     out = []
     for ep in eps.itertuples():
         partner = None
@@ -198,7 +197,7 @@ def _swap_partners(seq: Sequence, tracks: list[dict], eps: pd.DataFrame, iou: fl
 
 def stage_c_gallery(root, val, detector, min_conf, model, assoc, out: Path):
     print("\n--- C. Galeria de falhas (modelo final, vídeos de validação) ---\n")
-    src = _Source.public(root, val, detector)
+    src = Source.public(root, val, detector)
     meas_rows, ctx = [], {}
     for v in val:
         seq = src.seqs[v]
@@ -256,7 +255,7 @@ def stage_d_correction(root, train, val, detector, min_conf, model, assoc, sigma
     escolhido pelo IDF1 médio dos vídeos de TREINO.
     """
     print("\n--- D. Correção: amortecer a extrapolação sem observação ---\n")
-    src = _Source.public(root, train + val, detector)
+    src = Source.public(root, train + val, detector)
     seg_tr, seg_va = load_segments(root, train, detector), load_segments(root, val, detector)
     csv = out / "parte4_correcao.csv"
     done = pd.read_csv(csv) if csv.exists() else pd.DataFrame()      # retomável: pula fatores já medidos
@@ -275,7 +274,7 @@ def stage_d_correction(root, train, val, detector, min_conf, model, assoc, sigma
             c = gap_rollout_iou(lambda size, g=g: RNNMotion(model, size, blind_damping=g), segs, sigma, n=600, seed=1)
             for k in (1, 5, 10, 20, 30):
                 row[f"IoU cego k={k} ({name})"] = float(c[k - 1])
-        res = {v: _track(src, v, mk(src.seqs[v]), assoc, min_conf) for v in train + val}
+        res = {v: track_and_evaluate(src, v, mk(src.seqs[v]), assoc, min_conf) for v in train + val}
         for name, vs in (("treino", train), ("val", val)):
             row[f"IDF1 ({name})"] = float(np.mean([res[v]["idf1"] for v in vs]))
             row[f"ID sw/id ({name})"] = float(np.mean([res[v]["id_switches"] / max(1, res[v]["n_gt_ids"]) for v in vs]))
@@ -343,8 +342,8 @@ def run_parte4(cfg: Config, device: torch.device) -> None:
     seg_val = load_segments(root, val, detector)
     stage_a_gradient(cfg, seg_val, sigma, out)
 
-    src = _Source.public(root, train + val, detector)
-    thr, _ = _best_f1_threshold(src, train)
+    src = Source.public(root, train + val, detector)
+    thr, _ = best_f1_threshold(src, train)
     min_conf = cfg.association.min_conf if cfg.association.min_conf is not None else thr
     stage_b_survival(root, train + val, detector, min_conf, model, out)
     assoc = dict(method=cfg.association.method, iou_threshold=cfg.association.iou_threshold,

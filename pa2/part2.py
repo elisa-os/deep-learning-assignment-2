@@ -35,7 +35,7 @@ from pa2.mot17 import Sequence, resolve_split
 from pa2.metrics.reconnection import BUCKET_NAMES, gap_episodes, reconnection_table
 from pa2.mot17.evaluate import evaluate_tracks
 from pa2.mot17.trajectories import WindowSampler, load_segments
-from pa2.part1 import _best_f1_threshold, _pick_variant, _Source
+from pa2.part1 import best_f1_threshold, pick_variant, Source
 from pa2.utils.visualize import save_figure
 
 GAP_KS = (1, 2, 5, 10, 15, 20, 30)
@@ -102,7 +102,7 @@ def _motion_factories(model: MotionRNN) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # D. rastreamento
 # ─────────────────────────────────────────────────────────────────────────────
-def _track(src: _Source, video: str, motion, assoc: dict, min_conf: float) -> dict:
+def track_and_evaluate(src: Source, video: str, motion, assoc: dict, min_conf: float) -> dict:
     seq = src.seqs[video]
     tracks = track_sequence_motion(src.dets[video], seq.info.seq_length, motion,
                                    min_conf=min_conf, **assoc)
@@ -123,7 +123,7 @@ def _evaluate_methods(src, motions, assocs: dict, min_conf, splits: dict, peds: 
     rows = []
     for m in METHODS:
         for v, seq in src.seqs.items():
-            r = _track(src, v, motions[m](seq), assocs[m], min_conf)
+            r = track_and_evaluate(src, v, motions[m](seq), assocs[m], min_conf)
             rows.append(_row(m, seq, splits[v], assocs[m], r, peds[v]))
     return pd.DataFrame(rows)
 
@@ -135,10 +135,10 @@ def _tune(src, motions, base_assoc, train, min_conf) -> dict:
         rows = []
         for iou_t, age in itertools.product(SWEEP["iou_threshold"], SWEEP["max_age"]):
             a = {**base_assoc, "iou_threshold": iou_t, "max_age": age}
-            rs = [_track(src, v, motions[m](src.seqs[v]), a, min_conf) for v in train]
+            rs = [track_and_evaluate(src, v, motions[m](src.seqs[v]), a, min_conf) for v in train]
             rows.append({**a, "IDF1_train": np.mean([r["idf1"] for r in rs]),
                          "IDsw_train": np.mean([r["id_switches"] for r in rs])})
-        out[m] = (_pick_variant(pd.DataFrame(rows)), pd.DataFrame(rows))
+        out[m] = (pick_variant(pd.DataFrame(rows)), pd.DataFrame(rows))
     return out
 
 
@@ -296,8 +296,8 @@ def run_parte2(cfg: Config, device: torch.device) -> None:
 
     # ── D. rastreamento ─────────────────────────────────────────────────────
     print("\n--- D. Rastreamento: Parte 1 vs. velocidade constante vs. RNN ---\n")
-    src = _Source.public(root, train + val, detector)
-    thr, _ = _best_f1_threshold(src, train)
+    src = Source.public(root, train + val, detector)
+    thr, _ = best_f1_threshold(src, train)
     min_conf = cfg.association.min_conf if cfg.association.min_conf is not None else thr
     a = cfg.association
     base = dict(method=a.method, iou_threshold=a.iou_threshold, max_age=a.max_age, min_hits=a.min_hits)

@@ -44,7 +44,7 @@ from pa2.models import (MotionRNN, TrainSettings, eval_shift, load_checkpoint, p
 from pa2.mot17 import resolve_split
 from pa2.mot17.evaluate import evaluate_tracks
 from pa2.mot17.trajectories import WindowSampler, load_segments
-from pa2.part1 import _best_f1_threshold, _Source
+from pa2.part1 import best_f1_threshold, Source
 from pa2.part2 import gap_rollout_iou
 from pa2.utils.visualize import save_figure
 
@@ -77,7 +77,7 @@ class Context:
     seg_tr: list
     seg_va: list
     val_batch: tuple
-    src: _Source
+    src: Source
     min_conf: float
     assoc: dict
     splits: dict
@@ -92,8 +92,8 @@ def build_context(cfg: Config) -> Context:
     detector = cfg.detector_source or "SDP"
     seg_tr, seg_va = load_segments(root, train, detector), load_segments(root, val, detector)
     val_batch = WindowSampler(seg_va, cfg.rnn.window_T, seed=0).fixed_windows()
-    src = _Source.public(root, train + val, detector)
-    thr, _ = _best_f1_threshold(src, train)
+    src = Source.public(root, train + val, detector)
+    thr, _ = best_f1_threshold(src, train)
     min_conf = cfg.association.min_conf if cfg.association.min_conf is not None else thr
     a = cfg.association
     assoc = dict(method=a.method, iou_threshold=a.iou_threshold, max_age=a.max_age, min_hits=a.min_hits)

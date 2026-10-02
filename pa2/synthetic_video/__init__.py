@@ -1,17 +1,13 @@
-"""Dados sintéticos para o PA2 — gerador de vídeos e simulador de detector."""
+"""Dados sintéticos para o PA2 — gerador de vídeos e simulador de detector (Parte 0)."""
 
 from .synthetic import (
     SyntheticSequence,
-    SyntheticVideoDataset,
     SimulatedDetector,
     generate_synthetic_sequence,
-    make_synthetic_loader,
 )
 
 __all__ = [
     "SyntheticSequence",
-    "SyntheticVideoDataset",
     "SimulatedDetector",
     "generate_synthetic_sequence",
-    "make_synthetic_loader",
 ]
