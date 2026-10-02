@@ -199,3 +199,49 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
   - Achou: uma refutação por N50 dentro do ruído (o mesmo modelo dá 20,9 e 22,8 em duas tabelas; IC 95% ≈ ±2,5), um resultado exploratório descrito como nulo quando era misto, uma frase errada sobre a seed 42 e documentação defasada no README.
 - **Validação / Decisões Humanas:**
   - O bootstrap do N50 foi incorporado ao pipeline (`bootstrap_n50`, com teste), para o relatório não citar um número que o repositório não produz. As conclusões não mudaram (a correção continua não funcionando e a RNN continua melhor que a caixa parada), mas o critério que as sustenta mudou.
+
+---
+
+## Episódio 13: Parte 5 (teste de estresse: queda de taxa de quadros)
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Fazer a Parte 5 sem retreinar e responder as duas perguntas do enunciado (por que quebra; alimentar Δt resolveria) com dados, não só com texto. As hipóteses foram escritas no plano antes de rodar.
+- **Como a IA auxiliou:**
+  - Propôs avaliar cada taxa em todas as fases de subamostragem, uma variante com `max_age` casado no tempo e diagnósticos em trajetórias do GT (IoU entre amostras consecutivas, inclinação do deslocamento previsto, sensibilidade ao recurso Δt). Escreveu `pa2/stress/`, `pa2/part5.py` e os testes.
+  - Quando o resultado médio da validação escondia a estrutura, acrescentou o corte por tipo de câmera como saída do pipeline (e não como conta avulsa): a perda está toda nos vídeos de câmera móvel.
+  - Conferiu o relatório contra os CSVs e achou um número errado na própria frase da H2 (−0,03 nos 7 vídeos; o certo é −0,007).
+- **Validação / Decisões Humanas:**
+  - O pipeline reproduz exatamente os números da Parte 2 em k = 1.
+  - Resultados que contrariaram as hipóteses (alimentar Δt piora; o ganho do retreino multi-Δt só aparece nos vídeos de treino) ficaram no relatório, e o retreino ficou rotulado como exploratório, fora da regra "sem retreinar".
+
+---
+
+## Episódio 14: Notebook de inferência (`inferencia.ipynb`)
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Entregável obrigatório: receber uma sequência qualquer e devolver o vídeo com identidades coloridas e a contagem de objetos únicos, sem retreinar. Só temos as anotações do MOT17 (sem imagens).
+- **Como a IA auxiliou:**
+  - Colocou a lógica num módulo testável (`pa2/inference.py`) e deixou o notebook como casca; escreveu 16 testes com sequências sintéticas (sem GT, com imagens, erros) e um teste de regressão que reproduz o IDF1 da Parte 2 no vídeo 09.
+  - Antes de usar detecções brutas (sem GT), mediu o efeito do filtro por distratores que as Partes 1–5 aplicavam antes de rastrear: IDF1 médio 0,595 com e 0,596 sem. O número ficou registrado em `RELATORY_PART1.md`.
+  - Executou o notebook e conferiu as imagens embutidas (quadros com cor por id; gráfico de vida dos ids).
+- **Validação / Decisões Humanas:**
+  - O notebook avisa que a contagem de objetos únicos superestima (ids fragmentados) e mostra também a contagem filtrada e o GT, quando existe. O caminho com o torchvision só foi testado com modelo falso: está declarado como nunca rodado em imagens reais.
+
+---
+
+## Episódio 15: Revisão do repositório inteiro e correções
+
+- **Data:** 01/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - Antes da entrega, uma revisão do repositório como um todo: conformidade com o enunciado, regras proibidas, se os comandos documentados funcionam, consistência dos documentos e qualidade do código.
+- **Como a IA auxiliou:**
+  - Executou **cada comando do README** em diretórios temporários e comparou com os arquivos versionados (Partes 0, 1, 2 `--eval-only` e 5 idênticas; a Parte 5 inclusive com o retreino multi-Δt). Isso achou um comando enganoso (`pa2 0 --eval-only --checkpoint ...`, que ignora o checkpoint) e uma seção de download com nome de arquivo e estrutura de pastas errados.
+  - Achou um risco de portabilidade: o `torch` fixado no índice CUDA sem marcador de plataforma (macOS não tem wheels nesse índice) e uma chave `tool.uv.package` fora do escopo. Ao corrigir, percebeu que o lock passaria o macOS para `torch 2.14.1` (não testado) e limitou o intervalo a `<2.8`.
+  - Removeu código morto herdado do PA1, unificou `Context`/`build_context`, tornou públicos os helpers importados entre módulos e zerou o lint. Como os testes não exercitam os pipelines `run_parte*`, reexecutou as Partes 0, 1, 2, 4 (etapas A e C) e 5 depois da faxina e confirmou que reproduzem os resultados versionados.
+- **Validação / Decisões Humanas:**
+  - Não foi reproduzido: a instalação em macOS, os 21 treinos completos da Parte 3 e as etapas B e D da Parte 4. A lacuna de conformidade da Parte 1 (detector torchvision nunca rodado em imagens reais) segue em aberto e foi mantida visível.

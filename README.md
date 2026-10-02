@@ -14,108 +14,73 @@
 
 ### Ambiente
 
-O projeto usa [`uv`](https://docs.astral.sh/uv/) para gerenciar dependências e comandos. Sincronize o ambiente com:
+O projeto usa [`uv`](https://docs.astral.sh/uv/) para gerenciar dependências e comandos:
 
 ```bash
-cd deep-learning-assignment-2
-uv sync
+uv sync            # cria o .venv e instala tudo (PyTorch, torchvision, scipy, pandas, matplotlib, ...)
+uv run pytest      # 159 testes (≈15 s)
 ```
 
-Isso cria o ambiente virtual isolado (`.venv`) e instala todas as dependências listadas em `pyproject.toml`, incluindo PyTorch, torchvision, scikit-image, scipy, pandas, matplotlib, albumentations e tqdm. O pacote `pa2` está configurado via `module-root` no `pyproject.toml`; não é necessário uma pasta `src/`.
+Em **Linux e Windows** o PyTorch vem do índice CUDA 11.8 (`2.7.1+cu118`, download de ~3 GB com as bibliotecas CUDA; roda também em CPU, que é o que a maior parte do projeto usa). Em **macOS** o `uv` usa o PyTorch do PyPI, na mesma versão (`2.7.1`; não testado em macOS). O pacote `pa2` é configurado via `module-root` no `pyproject.toml`.
 
-Comandos disponíveis no CLI:
+Comandos do CLI (uma parte por vez; cada uma grava em `outputs/` e imprime o que mediu):
 
 ```bash
-uv run pa2 0     # Parte 0 — testes sintéticos (gerador + simulador + métricas + baseline)
-uv run pa2 1     # Parte 1 — baseline por quadro (MOT17 ou sintético)
-uv run pa2 2     # Parte 2 — RNN memória temporal (Trilha A)
-uv run pa2 3     # Parte 3 — ablações (Eixo 2: regime de treino)
+uv run pa2 0     # Parte 0 — testes sintéticos (gerador + simulador + métricas + baseline)      ≈20 s
+uv run pa2 1     # Parte 1 — baseline por quadro (detecções públicas, associação por IoU)       ≈90 s
+uv run pa2 2     # Parte 2 — RNN como modelo de movimento (Trilha A; modelo inicial)            ≈6 min
+uv run pa2 3     # Parte 3 — ablação do regime de treino (Eixo 2; 21 treinos)                   ≈25 min
+uv run pa2 4     # Parte 4 — horizonte de memória, galeria de falhas, correção                  ≈40 min
+uv run pa2 5     # Parte 5 — teste de estresse (queda de taxa de quadros)                       ≈6 min
 ```
 
-Ou use os comandos específicos:
+Opções úteis: `--output-dir <pasta>` (não sobrescreve os resultados versionados), `--eval-only --checkpoint <ckpt>`, `--epochs N`; na Parte 3, `--seeds` e `--regimes`.
 
-```bash
-uv run pa2 0  # Parte 0 — teste sintético completo
-uv run pa2 3  # Parte 3 — ablações
-```
+### Dados
 
-### Download dos dados
+**Já estão no repositório**, em `data/MOT17/`: o pacote de anotações do MOT17 (~10 MB: `gt/gt.txt`, `det/det.txt` e `seqinfo.ini`), então **nada precisa ser baixado** para reproduzir as Partes 0 a 5. Estrutura:
 
-O dataset usado é **MOT17 / MOTChallenge** — sequências de pedestres em rua e ambiente interno, com caixas e identidades anotadas quadro a quadro.
-
-**Como baixar:**
-
-Opção 1 — pacote só de anotações (recomendado para começar, ~10 MB, sem conta):
-```
-https://motchallenge.net/data/MOT17/
-```
-
-Baixe o arquivo `MOT17.zip` (ou `MOT17.zip` apenas com anotações) e extraia para:
 ```
 data/MOT17/
+  train/MOT17-02-SDP/{gt/gt.txt, det/det.txt, seqinfo.ini}    # também -DPM e -FRCNN; vídeos 02, 04, 05, 09, 10, 11, 13
+  test/MOT17-01-SDP/{det/det.txt, seqinfo.ini}                # o test/ não tem GT
 ```
 
-Ou seja, a estrutura esperada é:
-```
-data/MOT17/
-  train/
-    MOT17-02/
-      det/
-        det.txt        # detecções públicas (DPM/Faster R-CNN/SDP)
-      seqinfo.ini
-    MOT17-04/
-      ...
-  test/
-    ...
-```
-
-O pipeline detecta automaticamente a estrutura acima; não é necessário renomear ou reorganizar.
-
-Após baixar, edite `pa2/config.yaml` → `parte1.sequence_split` e `parte2.sequence_split` para definir quais sequências vão para treino, validação e teste (split por sequência inteira, nunca por quadro).
+As **imagens** (`img1/`) não estão aqui: precisariam do `MOT17.zip` completo (~5,5 GB, https://motchallenge.net/data/MOT17/) e só servem para o detector do torchvision (Parte 1) e para o vídeo do notebook com fundo real. O pacote de anotações é o `MOT17Labels.zip` do mesmo site. O split de treino e validação é por vídeo e está definido em `pa2/mot17/loader.py` (`DEFAULT_SPLIT`; `sequence_split` do `config.yaml`, se preenchido, tem prioridade).
 
 ### Um comando que treina
 
-Treina o **modelo final** (GRU de 64 unidades, teacher forcing puro, seed 42, 20 épocas, checkpoint da última época), que é o `teacher_forcing` da ablação da Parte 3:
+Treina o **modelo final** (GRU de 64 unidades, teacher forcing puro, seed 42, 20 épocas, checkpoint da última época), que é o `teacher_forcing` da ablação da Parte 3, **sem sobrescrever** o checkpoint entregue:
 
 ```bash
-uv run pa2 3 --regimes teacher_forcing --seeds 42      # ≈1–2 min em CPU; grava outputs/parte3_ablation/checkpoints/teacher_forcing_s42.pt
-cp outputs/parte3_ablation/checkpoints/teacher_forcing_s42.pt outputs/checkpoints/final_motion_rnn.pt
+uv run pa2 3 --regimes teacher_forcing --seeds 42 --output-dir outputs/retreino      # ≈2 min em CPU
+# grava outputs/retreino/parte3_ablation/checkpoints/teacher_forcing_s42.pt
 ```
 
-O treino usa as trajetórias do ground truth dos vídeos de treino (`pa2/config.yaml` → `parte3`). O retreino reproduz o regime, mas pode diferir bit a bit do checkpoint entregue (threads/máquina). `uv run pa2 2` treina o modelo inicial da Parte 2 (com buracos simulados e época escolhida pela validação), que não é o final.
-
-Sobrescreva epochs se precisar de uma execução mais curta (ex: validação rápida):
-
-```bash
-uv run pa2 2 --epochs 5
-```
+O treino usa as trajetórias do ground truth dos vídeos de treino (`pa2/config.yaml` → `parte3`). O retreino reproduz o regime mas **não bit a bit** o checkpoint entregue (threads/máquina; diferença máxima de peso medida ≈ 0,006; a conclusão da Parte 5 se mantém no retreino). Para usar o retreinado no lugar do entregue: `cp outputs/retreino/parte3_ablation/checkpoints/teacher_forcing_s42.pt outputs/checkpoints/final_motion_rnn.pt`. `uv run pa2 2` treina o modelo inicial da Parte 2 (com buracos simulados e época escolhida pela validação), que não é o final.
 
 ### Um comando que avalia
 
-Avalia o modelo já treinado sem retreinar, usando o checkpoint salvo:
+Avalia o modelo final sem retreinar:
 
 ```bash
 uv run pa2 2 --eval-only --checkpoint outputs/checkpoints/final_motion_rnn.pt --output-dir outputs/final
 ```
 
-Isso carrega os pesos e roda, nos 7 vídeos com GT (treino e validação), a comparação Parte 1 × velocidade constante × RNN e a análise de reconexão depois de buracos. Gera em `outputs/`:
+Carrega os pesos e roda, nos 7 vídeos com GT (treino e validação), a comparação Parte 1 × velocidade constante × RNN e a análise de reconexão depois de buracos. Gera em `outputs/final/` (reproduz byte a byte o que está versionado):
 - `parte2_summary.json` — configuração e médias por split
 - `parte2_per_sequence.csv` / `parte2_per_sequence_tuned.csv` — métricas por vídeo (IDF1, ID switches, fragmentações, contagem)
 - `parte2_comparacao.png` — Parte 1 × velocidade constante × RNN, vídeos ordenados por densidade
 - `parte2_reconnection.csv`, `parte2_reconexao.png` — o que acontece com a identidade depois de um buraco
 
-Para avaliar apenas uma parte específica com o checkpoint dela:
-
-```bash
-uv run pa2 0 --eval-only --checkpoint outputs/checkpoints/parte0_baseline.pt
-```
+A Parte 0 não tem checkpoint (é só teste sintético): `uv run pa2 0` roda e valida tudo.
 
 ### Arquivos entregues junto com o repositório
 
 Além do README.md, o repositório entrega:
 
 - **`AI_LOG.md`** — log de uso de IA neste assignment, conforme exigido pela política de uso de IA do enunciado (seção 5 do PA2.pdf). Descreve episódios em que IA foi usada e como os problemas foram resolvidos.
-- **`pa2/inferencia.ipynb`** (**ainda não existe**) — notebook de inferência: recebe o caminho de uma sequência MOT17 qualquer e devolve o vídeo com as identidades coloridas de forma consistente e a contagem de objetos únicos, rodando sem retreinar. Usa o checkpoint do modelo final (`outputs/checkpoints/final_motion_rnn.pt`).
+- **`inferencia.ipynb`** — notebook de inferência: recebe a **pasta de uma sequência** (formato MOTChallenge) e devolve o vídeo com as identidades coloridas de forma consistente (mesmo id, mesma cor), as tracks e a contagem de objetos únicos, **sem retreinar**. Usa o checkpoint do modelo final (`outputs/checkpoints/final_motion_rnn.pt`). A lógica está em `pa2/inference.py` (testada); o notebook é só a casca. Para executar: `uv run jupyter nbconvert --to notebook --execute inferencia.ipynb --inplace` (ou abra no VS Code / `uv run --with jupyterlab jupyter lab inferencia.ipynb`); para outra sequência, troque `SEQUENCE_DIR` na primeira célula. Saídas em `outputs/inferencia/` (o `.mp4` completo não é versionado).
 - **`outputs/checkpoints/final_motion_rnn.pt`** — pesos do modelo temporal final (GRU 64, teacher forcing, seed 42; decisão em `RELATORY_PART2.md` §6). É o artefato que o `inferencia.ipynb` e o comando de avaliação usam. O modelo inicial da Parte 2 continua em `parte2_motion_rnn.pt`.
 
 ---
@@ -137,7 +102,7 @@ Parte 0 valida o pipeline completo antes de tocar em dados reais, usando vídeos
    - (c) track partida no quadro 10 e sem detecção nos quadros 12–14 ⇒ IDF1 = 156/177 ≈ 0,881 (≠ de (b)), 1 switch, 1 fragmentação
 4. **Baseline no piso fácil:** `_check_baseline_easy()` roda o matching guloso (IoU 0,3, `max_age` 5) com 3 elipses lentas sem oclusão e detector perfeito em 5 seeds; exige IDF1 ≥ 0,99. Depois, `_run_parameter_sweep()` gira um botão por vez (`n_objects`, `velocity_scale`, `occlusion_duration`) a partir de uma referência (6 objetos, velocidade 1, sem oclusão), com 10 seeds por ponto, e mostra IDF1, razão ids previstos/verdadeiros e ID switches por identidade.
 
-- **Onde:** `pa2/synthetic_video/synthetic.py` (dataset + gerador + simulador), `pa2/metrics/tracking.py` (métricas), `pa2/association/matching.py` (matching guloso e Hungarian), `pa2/part0.py` (pipeline da Parte 0)
+- **Onde:** `pa2/synthetic_video/synthetic.py` (gerador + simulador de detector), `pa2/metrics/tracking.py` (métricas), `pa2/association/matching.py` (`GreedyMatcher`), `pa2/part0.py` (pipeline da Parte 0)
 - **Como reproduzir:** `uv run pa2 0`
 - **Saídas:**
   - `outputs/parte0_occlusion_demo.png` — tira de quadros do alvo escondido por N quadros + curva de visibilidade
@@ -205,14 +170,12 @@ E fazer uma correção: escolher um dos diagnósticos, implementar a mudança qu
 
 ### Parte 5 — Teste de estresse (queda de taxa de quadros)
 
-Escolhemos o teste de **queda de taxa de quadros**: avaliamos com o vídeo subamostrado a 1/2 e 1/5 da taxa original — curva de degradação do IDF1. Por que um modelo de movimento aprendido em Δt fixo quebra quando Δt muda? Alimentar Δt na recorrência resolveria? Feito sem retreinar, em cima do modelo final.
+Escolhemos o teste de **queda de taxa de quadros**: o vídeo é subamostrado a 1/2 e 1/5 (em todas as fases) e o **modelo final roda sem retreinar**; curva de degradação do IDF1, mais a resposta a "por que quebra quando Δt muda?" e "alimentar Δt resolveria?". Um retreino multi-Δt entra como experimento **exploratório e rotulado** (fora da regra "sem retreinar").
 
-- **Onde:** `pa2/stress/stress_test.py` (avaliação de subamostragem)
-- **Como reproduzir:** `uv run pa2 5` (requer checkpoint da Parte 2 treinado)
-- **Saídas:**
-  - `outputs/parte5_stress_test.png` — curva de degradação IDF1 vs. taxa de quadros
-  - `outputs/parte5_stress_results.json` — resultados quantitativos
-- **Status:** A implementar
+- **Onde:** `pa2/part5.py` (pipeline), `pa2/stress/subsample.py` (subamostragem do vídeo), `pa2/stress/diagnostics.py` (diagnósticos em trajetórias do GT)
+- **Como reproduzir:** `uv run pa2 5` (≈6 min em CPU, só com as anotações; retomável). Relatório: `RELATORY_PART5.md`.
+- **Saídas** (`outputs/final_parte5/`): `parte5_idf1_fixa.png` e `parte5_idf1_casada.png` (curva principal e variante com `max_age` casado), `parte5_idf1_camera.png` (por tipo de câmera), `parte5_por_video.png`, `parte5_estrutura.png`, `parte5_diagnosticos.png`, `parte5_multidt.png` (exploratório), `parte5_resumo.csv`/`.json`, `parte5_curva.csv` (todas as células), `parte5_diag_*.csv`, `parte5_multidt*.csv`, `checkpoints/` (modelos multi-Δt)
+- **Status:** Implementado e executado. Resumo: em 1/5 a RNN perde ~24% de IDF1 na validação (caixa parada 36%, velocidade constante 15%); a perda está nos vídeos de **câmera móvel**; alimentar Δt sem treino piora; treinar com Δt variado melhora só dentro da amostra.
 
 ---
 
@@ -230,6 +193,7 @@ deep-learning-assignment-2/
 ├── AI_LOG.md                   # Log de uso de IA (entregável)
 ├── CLAUDE.md                   # Instruções para agentes (aponta para PA2.md e os relatórios)
 ├── metrics.py                  # Entregável: re-exporta as métricas de pa2/metrics/tracking.py
+├── inferencia.ipynb            # Entregável: inferência sobre uma sequência qualquer (usa pa2/inference.py)
 ├── tests/                      # pytest: métricas, gerador, detecção/NMS, rastreadores, RNN, ablação, Parte 4
 ├── data/MOT17/                 # Anotações do MOT17 (train/ com GT e det.txt; test/ só det.txt)
 ├── outputs/                    # Resultados versionados (ver "Onde estão as saídas" abaixo)
@@ -242,6 +206,8 @@ deep-learning-assignment-2/
     ├── part2.py                # Parte 2: RNN como modelo de movimento (Trilha A)
     ├── ablation.py             # Parte 3: ablação do regime de treino (Eixo 2)
     ├── part4.py                # Parte 4: horizonte de memória, galeria de falhas, correção
+    ├── part5.py                # Parte 5: teste de estresse (queda de taxa de quadros)
+    ├── inference.py            # Inferência sobre uma pasta de sequência (tracks, contagem, vídeo); usada pelo notebook
     │
     ├── utils/                  # seed, device, exportação de métricas, gráficos (herdados do PA1)
     ├── synthetic_video/        # Gerador de vídeos sintéticos + simulador de detector (Parte 0)
@@ -251,17 +217,18 @@ deep-learning-assignment-2/
     │   ├── reconnection.py     # Desfecho da identidade depois de um buraco de rastreamento
     │   └── cases.py            # Casos (a)(b)(c) feitos à mão, com valores esperados
     ├── association/
-    │   ├── matching.py         # GreedyMatcher (usado só na Parte 0; HungarianMatcher não é usado)
+    │   ├── matching.py         # GreedyMatcher (Parte 0)
     │   ├── tracker.py          # IoUTracker: baseline ingênuo das Partes 1+
     │   ├── motion.py           # Modelos de movimento: caixa parada, velocidade constante, RNN
     │   └── motion_tracker.py   # MotionTracker: mesma gestão de tracks, compara com a caixa prevista
     ├── mot17/                  # loader.py, evaluate.py (convenções do benchmark), trajectories.py (janelas de treino)
     ├── detection/              # nms.py (próprio) e torchvision_person.py (detector pré-treinado, inferência)
     ├── models/motion_rnn.py    # MotionRNN (RNN/GRU/LSTM), treino, validação, checkpoints
-    └── analysis/               # Parte 4: memory.py (gradiente, oclusões injetadas), gallery.py, runner.py
+    ├── analysis/               # Parte 4: memory.py (gradiente, oclusões injetadas), gallery.py, runner.py
+    └── stress/                 # Parte 5: subsample.py (subamostragem 1/k do vídeo), diagnostics.py
 ```
 
-**Ainda não existem (pendentes):** `pa2/part5.py` (+ `pa2/stress/`) e `pa2/inferencia.ipynb`.
+**Notebook de inferência:** `inferencia.ipynb` (na raiz), apoiado em `pa2/inference.py`.
 
 **Onde estão as saídas (`outputs/`):**
 - `parte0_*`, `parte1_*`, `metrics/`: Partes 0 e 1.
@@ -270,12 +237,13 @@ deep-learning-assignment-2/
 - `final/`: reavaliação da Parte 2 com o modelo final (mesmos arquivos de `parte2_*`).
 - `parte3_ablation/`: ablação (resumo em CSV/PNG; `runs/` brutos; `checkpoints/` dos 21 treinos).
 - `final_parte4/`: Parte 4 (modelo final).
+- `final_parte5/`: Parte 5 (teste de estresse; `checkpoints/` = modelos multi-Δt exploratórios).
 
 ---
 
 ## Configuração via `pa2/config.yaml`
 
-O comportamento do pipeline é controlado por `pa2/config.yaml`, que define seções separadas por parte (`parte0`, `parte1`, `parte2`, `parte3`). Cada seção especifica: dados sintéticos ou reais, diretório dos dados, parâmetros do gerador (Parte 0), parâmetros do matcher, parâmetros da RNN (Parte 2+), janela T, teacher forcing ratio, e configurações de ablação.
+O comportamento do pipeline é controlado por `pa2/config.yaml`, que define seções separadas por parte (`parte0` a `parte5`). Cada seção especifica: dados sintéticos ou reais, diretório dos dados, parâmetros do gerador (Parte 0), parâmetros do matcher, parâmetros da RNN (Parte 2+), janela T, teacher forcing ratio, e configurações de ablação.
 
 Exemplo da seção `parte0`:
 
@@ -323,8 +291,8 @@ parte0:
 | Parte 2 — Trilha A (RNN movimento) | **Feita** — GRU de movimento + análise de reconexão (`RELATORY_PART2.md`); opcional pendente: incerteza/portão adaptativo |
 | Parte 3 — Ablação (Eixo 2) | **Feita** — 7 regimes × 3 seeds, resultados em `RELATORY_PART3.md` |
 | Parte 4 — Galeria de falhas + horizonte de memória | **Feita** — gradiente (conferido por diferenças finitas), oclusões injetadas, 3 falhas, correção negativa (`RELATORY_PART4.md`) |
-| Parte 5 — Teste de estresse (queda de taxa de quadros) | **A implementar** |
-| Entregáveis | README, `AI_LOG.md`, `metrics.py` e checkpoint (`outputs/checkpoints/final_motion_rnn.pt`) prontos; **faltam** `inferencia.ipynb` e a Parte 5 |
+| Parte 5 — Teste de estresse (queda de taxa de quadros) | **Feita** — curva de IDF1, diagnósticos e multi-Δt exploratório (`RELATORY_PART5.md`) |
+| Entregáveis | **Prontos:** README (um comando que treina e um que avalia), `metrics.py`, `AI_LOG.md`, `inferencia.ipynb`, checkpoint (`outputs/checkpoints/final_motion_rnn.pt`). Pendente (opcional): detector torchvision da Parte 1 |
 
 ---
 
@@ -332,7 +300,7 @@ parte0:
 
 | Decisão | Escolha | Justificativa |
 |---------|---------|---------------|
-| Trilha da Parte 2 | **Trilha A** (RNN movimento) | Mais simples de starting: LSTM/GRU prevê próxima caixa, perda L1 sobre trajetórias do GT, não requer encoder de imagem adicional |
+| Trilha da Parte 2 | **Trilha A** (RNN movimento) | Mais simples de começar: LSTM/GRU prevê próxima caixa, perda L1 sobre trajetórias do GT, não requer encoder de imagem adicional |
 | Eixo de ablação da Parte 3 | **Eixo 2** (regime de treino) | Mais relevante para o problema: na inferência o modelo se alimenta das próprias previsões; se nunca viu isso no treino, há distribution shift |
 | Teste de estresse da Parte 5 | **Queda de taxa de quadros** | Conecta diretamente com a pergunta da Parte 2 sobre janela de T quadros e Δt variável |
 
@@ -340,11 +308,10 @@ parte0:
 
 ## Notas
 
-- **Aula dia 30/09/2026:** a Parte 0 foi executada e validada. O gerador de vídeos sintéticos gera sequências com oclusão real. O simulador de detector aplica drop, ruído e FPs. As métricas (IDF1, ID switches, fragmentações) passam nos 3 casos de teste. O baseline no piso fácil tem IDF1≈1.
-- **Varredura de parâmetros:** demonstra a degradação do baseline ingênuo com detector ruidoso. Os resultados são esperados — o matcher não foi otimizado para condições adversas.
-- **MOT17:** o pacote só de anotações (~10 MB) deve ser baixado antes de começar a Parte 1. O split por sequência deve ser definido em `pa2/config.yaml` → `parte1.sequence_split` e `parte2.sequence_split`.
-- **Divisão de trabalho:** a dupla deve definir contratos de interface antes de começar cada parte para evitar bloqueios mútuos.
+- **Aula dia 30/09/2026:** a Parte 0 foi executada e validada; depois foram feitas e documentadas as Partes 1 a 5 e o notebook de inferência (cada uma com o seu `RELATORY_PARTEn.md`).
+- **MOT17:** o pacote de anotações já está em `data/MOT17/`; o split por vídeo está em `pa2/mot17/loader.py`. As imagens (~5,5 GB) só são necessárias para o detector do torchvision da Parte 1.
+- **Reprodutibilidade:** as Partes 0, 1, 2 (`--eval-only`) e 5 foram reexecutadas do zero numa revisão e reproduzem os arquivos versionados; o treino é determinístico só na mesma máquina e com as mesmas threads (ver "Um comando que treina").
 
 ---
 
-*Última atualização: 30/09/2026 — Parte 0 concluída e documentada.*
+*Última atualização: 01/10/2026 — Partes 0 a 5 e `inferencia.ipynb` concluídos.*

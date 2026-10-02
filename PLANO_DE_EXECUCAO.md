@@ -13,7 +13,7 @@ PA2 tem a mesma arquitetura de projeto que o PA1: `uv` para ambiente, `pyproject
 
 ---
 
-## Fase 0 — Estrutura do projeto
+## Fase 0 — Estrutura do projeto  *(plano inicial; a estrutura real e atual está no `README.md`)*
 
 Criar `deep-learning-assignment-2/` com a mesma estrutura de pastas do PA1:
 
@@ -226,7 +226,7 @@ da Parte 2, **mesmo nº de épocas e checkpoint da ÚLTIMA época** (sem seleç�
    checkpoint atual continua dando os mesmos CSVs).
 2. `pa2/ablation.py` (`run_ablation`, já chamado por `main.py`): laço config × seed, checkpoint em
    `outputs/parte3_ablation/checkpoints/`, retomável (pula o que já existe), `--jobs` opcional para rodar seeds em
-   paralelo (CPU de 12 núcleos); reaproveita `_Source`, `_track`, `gap_rollout_iou` de `part2.py`.
+   paralelo (CPU de 12 núcleos); reaproveita `Source`, `track_and_evaluate`, `gap_rollout_iou` de `part1.py`/`part2.py`.
 3. `config.yaml` `parte3`: GRU, batch 64, lr 2e-3, `regimes` reescritos conforme a tabela acima, seeds.
 4. Testes: agenda de `tf`, `tf = 0` usa só a própria previsão e flag 0, regime sem buracos, guarda de NaN,
    agregador média ± desvio, parsing do config.
@@ -255,29 +255,30 @@ de maior IDF1 médio de validação; checkpoint da seed 42 (sem escolher a melho
 
 ---
 
-## Fase 6 — Parte 5: Teste de estresse (escolher 1)
+## Fase 6 — Parte 5: Teste de estresse — queda de taxa de quadros  *(FEITA — ver `RELATORY_PART5.md`)*
 
-**DECISAO PENDENTE: Qual teste?**
+**Decidido (01/10):** queda de taxa de quadros; curva principal estritamente **sem retreinar**, em cima do modelo final;
+retreino multi-Δt como **exploratório rotulado** (fora da regra). Implementação: `pa2/stress/` (subamostragem e
+diagnósticos), `pa2/part5.py`, seção `parte5` do `config.yaml`; saída em `outputs/final_parte5/`.
 
-**Queda de taxa de quadros (recomendado):**
-- Avaliar com vídeo subamostrado a 1/2 e 1/5 da taxa original
-- Curva de degradação do IDF1
-- Por que modelo de movimento aprendido em Δt fixo quebra quando Δt muda?
-- Alimentar Δt na recorrência resolveria?
+**Hipóteses registradas ANTES de rodar:**
+- H1: todos os métodos perdem IDF1 com a queda de taxa.
+- H2: a vantagem da RNN sobre a caixa parada encolhe ou some em 1/5 (o modelo foi aprendido em Δt = 1).
+- H3: alimentar Δt = k a um modelo que só viu Δt = 1 não recupera nada (o recurso nunca variou no treino).
+- H4: o retreino multi-Δt recupera parte da perda.
+- Mecanismo proposto (a testar nos diagnósticos): em Δt = 1 o deslocamento por quadro é pequeno frente ao ruído do
+  detector, então a rede aprendeu a *encolher* a velocidade; em Δt maior esse encolhimento passa a subestimar.
 
-**Qualidade do detector:**
-- Degradar detecções propositalmente: descartar p%, adicionar ruído nas caixas, injetar falsos positivos
-- 3 intensidades diferentes
-- O modelo temporal absorve ou amplifica a falha do detector?
-- Reportar mAP e IDF1 juntos
-
-Feito sem retreinar, em cima do modelo final.
+**Desenho:** subamostra a 1/2 e 1/5 em todas as fases (offsets); métodos: caixa parada, velocidade constante, RNN final com
+Δt = 1, RNN final com Δt = k alimentado; regra de associação inalterada (principal) e `max_age` casado no tempo
+(`round(30/k)`, secundária); diagnósticos em trajetórias do GT (IoU entre amostras consecutivas, inclinação do deslocamento
+previsto, sensibilidade ao recurso Δt).
 
 ---
 
 ## Fase 7 — Entregáveis finais (target: até 02/10)
 
-1. **`pa2/inferencia.ipynb`:** recebe caminho de uma sequência qualquer, devolve vídeo com identidades coloridas de forma consistente e contagem de objetos únicos. Roda sem retreinar.
+1. **`inferencia.ipynb`** *(FEITO, na raiz; lógica em `pa2/inference.py`)*: recebe a pasta de uma sequência qualquer (formato MOTChallenge), devolve vídeo com identidades coloridas de forma consistente e contagem de objetos únicos. Roda sem retreinar. Limites: sem imagens o fundo é vazio; o caminho torchvision (sem `det/det.txt`) está coberto por teste com modelo falso, mas nunca rodou em imagens reais.
 2. **`README.md`:**
    - Ambiente (`uv sync`)
    - Download dos dados (MOT17, link, tamanho, pacote de anotações vs. frames)
@@ -309,17 +310,17 @@ Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
 **Revisão da Parte 4 e do repositório (01/10) — adiado**
 - [ ] Reproduzir do zero a etapa B da Parte 4 (oclusões injetadas; > 1 h, vídeo 04 é o gargalo): hoje só foi
       recomputada a partir de `parte4_oclusoes_injetadas.csv`. Rodar à noite com `uv run pa2 4`.
-- [ ] Higiene de código: extrair helpers compartilhados (`_Source`, `_best_f1_threshold`, `_pick_variant`, `_track`,
-      `_clear_match`, `_frame_range`, `_parse_tracks_to_frames` são importados com `_` entre módulos); remover código
-      morto herdado do PA1 (`BoxAssociation`, `TrackManager`, `track_matches_iou`, `simple_greedy_match`,
-      `HungarianMatcher`, 5 funções de `utils/visualize.py`, `make_synthetic_loader`); unificar `GreedyMatcher` (Parte 0)
-      e `IoUTracker`.
+- [x] **Feito (revisão do repositório, 01/10):** os helpers importados entre módulos passaram a ser públicos (`Source`,
+      `best_f1_threshold`, `pick_variant`, `track_and_evaluate`, `clear_match`, `frame_range`, `parse_tracks_to_frames`);
+      `Context`/`build_context` deixaram de estar duplicados (`part5.py` usa o de `ablation.py`); código morto herdado do
+      PA1 removido (`BoxAssociation`, `TrackManager`, `track_matches_iou`, `simple_greedy_match`, `HungarianMatcher`,
+      5 funções de `utils/visualize.py`, `make_synthetic_loader`, `SyntheticVideoDataset`); lint limpo.
+      **Pendente:** unificar `GreedyMatcher` (Parte 0) e `IoUTracker`.
 - [ ] `outputs/` mistura convenções (`parte0_`/`parte1_`/`parte2_` soltos, `final/`, `final_parte4/`,
       `parte3_ablation/`); padronizar em `outputs/parteN/` e atualizar README e relatórios juntos.
 - [ ] `data/MOT17Labels.zip` (9,7 MB) está versionado e é redundante com as pastas extraídas.
 - [ ] Cosmético: títulos das figuras de falha saem sem acento ("oclusao longa") e há muito espaço vazio entre as
       tiras de quadros e os gráficos.
-- [ ] `input_size`, `dropout`, `num_layers` do YAML seguem sem efeito (ver backlog de configuração).
 - [x] Feito na revisão: README (status, árvore, saídas), `CLAUDE.md`, relatório da Parte 4 (N50 com IC por bootstrap,
       refutação da correção pelo critério certo, resultado misto do fator 1,15), correção da frase sobre a seed 42 em
       `RELATORY_PART2.md` §6, mensagem final de `part4.py`, remoção do `eval_iou` sem efeito.
@@ -336,7 +337,7 @@ Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
 - [ ] Opcional do enunciado: incerteza + portão de associação adaptativo (ver Fase 3).
 
 **Configuração**
-- [ ] `input_size`, `dropout`, `num_layers` do YAML não têm efeito (o modelo fixa 10 features e 1 camada).
+- [x] `input_size` e `num_workers` removidos (nenhum código os lia). `dropout` e `num_layers` ficam no YAML, mas o modelo só aceita 1 camada e sem dropout (levanta erro se forem outros valores).
 - [ ] `parte3` do YAML ainda diz LSTM (a Parte 2 usa GRU) → resolvido pela Fase 4.
 
 **Parte 1**
@@ -355,7 +356,7 @@ Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
 | 1 | Trilha A ou B (Parte 2) | **Decidido: Trilha A** (RNN movimento) | dupla |
 | 1b | Modelo final (Partes 4 e 5, notebook) | **Decidido: `teacher_forcing_s42`** (`outputs/checkpoints/final_motion_rnn.pt`; `RELATORY_PART2.md` §6) | dupla |
 | 2 | Eixo de ablação (Parte 3) | Eixo 2 (regime de treino) | dupla |
-| 3 | Teste de estresse (Parte 5) | Queda de taxa de quadros | dupla |
+| 3 | Teste de estresse (Parte 5) | **Decidido: queda de taxa de quadros** (+ multi-Δt exploratório rotulado) | dupla |
 | 4 | Sequência MOT17 de validação nunca vista | Justificar por câmera parada/móvel, densidade, ponto de vista | dupla |
 | 5 | Divisão de responsabilidades entre Bruno e Elisa | Definir contratos de interface antes de começar | dupla |
 

@@ -122,3 +122,8 @@ câmera e densidade em cada vídeo para isso ficar visível.
   são no limiar de operação (score ≥ 0,4).
 - `min_hits = 3` descarta as duas primeiras observações de cada track (cria FN), o que as
   métricas de detecção da Parte 1 não capturam.
+- **Nota de protocolo (verificada na entrega do notebook de inferência):** nas Partes 1 a 5, `Source.public` remove as
+  detecções que casam com distratores do GT *antes* de rastrear (o benchmark remove as caixas rastreadas depois, e isso
+  também é feito em `evaluate_tracks`). Medi o efeito com o modelo final nos 7 vídeos: IDF1 médio **0,595 com o filtro e
+  0,596 sem** (validação: 0,576 nos dois casos; maior diferença: 0,454 → 0,466 no vídeo 02). O notebook de inferência usa as
+  detecções brutas, sem GT, e os números das Partes 1 a 5 não ficam enviesados por esse filtro.
