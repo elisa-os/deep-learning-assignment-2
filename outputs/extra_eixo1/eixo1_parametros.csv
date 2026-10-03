@@ -1,0 +1,13 @@
+regime,rnn_type,hidden_size,window_T,params
+rnn_T4,RNN,93,4,18883
+rnn_T8,RNN,93,8,18883
+rnn_T16,RNN,93,16,18883
+rnn_T32,RNN,93,32,18883
+gru_T4,GRU,64,4,19012
+gru_T8,GRU,64,8,19012
+gru_T16,GRU,64,16,19012
+gru_T32,GRU,64,32,19012
+lstm_T4,LSTM,57,4,19270
+lstm_T8,LSTM,57,8,19270
+lstm_T16,LSTM,57,16,19270
+lstm_T32,LSTM,57,32,19270

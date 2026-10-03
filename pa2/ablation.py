@@ -62,7 +62,7 @@ def settings_for(cfg: Config, regime: dict, seed: int) -> TrainSettings:
     r = {**REGIME_DEFAULTS, **regime}
     return TrainSettings(
         epochs=cfg.train.epochs, steps_per_epoch=cfg.rnn.steps_per_epoch,
-        batch_size=cfg.data.batch_size, lr=cfg.train.lr, window_T=cfg.rnn.window_T,
+        batch_size=cfg.data.batch_size, lr=cfg.train.lr, window_T=int(r.get("window_T", cfg.rnn.window_T)),
         tf_ratio=r["teacher_forcing_ratio"], tf_schedule=r["tf_schedule"], tf_end=r["tf_end"],
         gap_prob=r["gap_prob"], max_gap=r["max_gap"], obs_noise=tuple(cfg.rnn.obs_noise),
         clip=r["gradient_clipping"], clip_value=r["grad_clip_value"], seed=seed, select="last")
@@ -140,8 +140,8 @@ def train_and_evaluate(cfg: Config, ctx: Context, regime: dict, seed: int, ckpt_
     name = regime["name"]
     settings = settings_for(cfg, regime, seed)
     torch.manual_seed(seed)
-    model = MotionRNN(cfg.model.rnn_type, cfg.model.hidden_size, cfg.model.use_delta_t,
-                      cfg.model.num_layers, cfg.model.dropout, cfg.model.predict_uncertainty)
+    model = MotionRNN(regime.get("rnn_type", cfg.model.rnn_type), int(regime.get("hidden_size", cfg.model.hidden_size)),
+                      cfg.model.use_delta_t, cfg.model.num_layers, cfg.model.dropout, cfg.model.predict_uncertainty)
     sampler = WindowSampler(ctx.seg_tr, settings.window_T, cfg.rnn.train_strides, seed=seed)
     ckpt = ckpt_dir / f"{name}_s{seed}.pt"
     hist = train_motion_rnn(model, sampler, ctx.val_batch, settings, log=log, save_to=ckpt,

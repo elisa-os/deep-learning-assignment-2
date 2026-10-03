@@ -115,3 +115,37 @@ câmera parada (02, 04 e 09, este por pouco: 0,562 × 0,559). No vídeo original
 3. O modelo quebra porque encolhe o deslocamento cada vez mais com Δt (inclinação 0,81 → 0,47), e a velocidade constante,
    que extrapola o deslocamento observado, quase não sofre.
 4. Alimentar Δt sem treino **piora** (−0,06); treinar com Δt variado melhora só dentro da amostra (+0,038) e não fora (−0,002).
+
+## 8. EXTRA (03/10): o outro teste de estresse — qualidade do detector (sem retreinar)
+Feito **depois** da queda de taxa de quadros, como extra (`pa2/part5_detector.py`, `uv run pa2 5b`; saídas `parte5b_*` em `outputs/final_parte5/`).
+**Hipóteses escritas antes de rodar** (docstring do módulo):
+- H1: o IDF1 cai com todas as degradações, e cai mais com falsos positivos e descarte do que com ruído.
+- H2: a RNN **absorve** parte do descarte (a caixa prevista sustenta a track nos quadros sem detecção), mas não os falsos positivos.
+- H3: o ruído alto prejudica a RNN mais que a caixa parada (a rede foi treinada com ruído moderado).
+
+**Desenho:** sobre as detecções SDP (já sem distratores), 3 intensidades combinadas e os 3 fatores isolados na intensidade forte; 3 seeds de degradação; mesmo modelo final,
+mesma associação. Descarte 10/25/40%; ruído **relativo ao tamanho da caixa** (desvio de 3/6/10%: left/top somam N(0, σ)·w/h, w e h multiplicam exp(N(0, σ))); falsos positivos
+0,5/1,5/3 por quadro (copiam o tamanho de uma detecção real, posição uniforme, score uniforme em [0,4; 1], ou seja, passam pelo limiar). *Calibração:* eu havia pensado em ruído de 20%,
+mas num teste rápido no vídeo 09 isso derrubava o AP50 de 0,64 a 0,17 (colapso do detector, não um teste útil); fiquei com 10% (AP50 0,57). O mAP e o F1 do detector são medidos nas detecções degradadas.
+
+**Resultado (vídeos de validação, média ± desvio de 3 seeds; IDF1 relativo ao original entre parênteses):**
+
+| condição | mAP | F1 det. | caixa parada | velocidade constante | **RNN final** |
+|---|---|---|---|---|---|
+| original | 0,385 | 0,740 | 0,488 | 0,534 | **0,576** |
+| leve | 0,311 | 0,676 | 0,432 (0,88) | 0,470 (0,88) | **0,525** (0,91) |
+| média | 0,200 | 0,563 | 0,296 (0,61) | 0,258 (0,48) | **0,407** (0,71) |
+| forte | 0,096 | 0,410 | 0,175 (0,36) | 0,079 (0,15) | **0,207** (0,36) |
+| só descarte (40%) | 0,234 | 0,529 | 0,291 (0,60) | 0,313 (0,59) | **0,374** (0,65) |
+| só ruído (10%) | 0,160 | 0,672 | 0,274 (0,56) | 0,175 (0,33) | **0,371** (0,64) |
+| só falsos positivos (3/q) | 0,382 | 0,647 | 0,479 (0,98) | 0,518 (0,97) | **0,558** (0,97) |
+
+- **H1: refutada na parte "mais com falsos positivos".** Os falsos positivos quase **não** machucam (IDF1 −3% nos três métodos): aleatórios no espaço, raramente aparecem 3 quadros seguidos no mesmo lugar, então
+  o `min_hits = 3` os filtra. O que mais machuca é o **ruído** nas caixas (RNN −36%, caixa parada −44%, velocidade constante −67%) e o **descarte** (−35%, −40%, −41%).
+  Atenção: o **mAP não vê os falsos positivos** (0,385 → 0,382), porque o SDP tem scores saturados em ~1 e os falsos positivos ficam ranqueados abaixo dos verdadeiros; só a precisão no limiar de operação cai (0,99 → 0,68 no vídeo 09). Por isso reporto também o F1.
+- **H2: parcialmente confirmada.** A RNN perde **menos** que os outros no descarte (−35% × −40% da caixa parada e −41% da velocidade constante) e na condição média (−29% × −40% e −52%); na condição forte
+  ela empata em termos relativos com a caixa parada (−64% nos dois; em valor absoluto 0,207 × 0,175). Ela **absorve** parte da falha, não a amplifica, e não a elimina. Sobre os falsos positivos, a previsão é "absorvida" por outro motivo: o `min_hits` já os filtra.
+- **H3: refutada.** A RNN **não** é a mais frágil ao ruído: perde menos que a caixa parada (−36% × −44%); a **velocidade constante** é a que quebra (−67%: o ruído vira velocidade espúria).
+- **Resposta à pergunta do enunciado:** o modelo temporal **absorve parte, não amplifica**. A vantagem de IDF1 da RNN sobre a caixa parada é de +0,09 (original), +0,09 (leve) e +0,11 (média), e cai a **+0,03 na condição forte**; sobre a velocidade constante ela cresce com a degradação (+0,04 → +0,13 na forte). O IDF1 de todos acompanha o mAP/F1 do detector (painel mAP × IDF1 da figura): o modelo temporal desloca a curva para cima nas degradações moderadas e perde o efeito quando o detector entrega quase nada.
+- **Ressalvas:** os falsos positivos aleatórios são um caso fácil (um detector real erra em lugares plausíveis e persiste por vários quadros); degradação sintética sobre o SDP, não um detector pior de verdade (veja o Faster R-CNN COCO na Parte 1); 3 seeds; só validação (09 e 13) no texto, os 7 vídeos em `parte5b_detector_resumo_todos.csv`.
+

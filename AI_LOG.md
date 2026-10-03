@@ -263,3 +263,21 @@ Este documento registra os episódios de utilização de ferramentas de Intelig�
   - A dupla decidiu rodar só o mínimo (o detector torchvision e o vídeo do notebook com fundo real) e não refazer as figuras de falha da Parte 4 sobre quadros reais. As Partes 0, 2, 3, 4 e 5 não leem imagem, então não foram reexecutadas.
   - Segue não reproduzido: instalação em macOS, os 21 treinos completos da Parte 3 e as etapas B e D da Parte 4.
 
+---
+
+## Episódio 17: Reexecução do zero e dois extras (Eixo 1 e qualidade do detector)
+
+- **Data:** 03/10/2026
+- **Ferramenta:** Claude Code
+- **Contexto e Motivação:**
+  - O prazo foi estendido. Objetivo: refazer o trabalho inteiro a partir do zero para verificar a reprodutibilidade e, com o tempo extra, fazer os dois experimentos que o enunciado oferece e que não tínhamos escolhido (Eixo 1 da Parte 3 e o teste de qualidade do detector da Parte 5).
+- **Como a IA auxiliou:**
+  - Criou uma cópia limpa do repositório (`git worktree`), apagou `outputs/` (inclusive o cache do torchvision e todos os checkpoints) e rodou em sequência testes, Partes 0 a 5. Escreveu um script que compara cada arquivo gerado com o versionado (byte a byte e numericamente).
+  - A primeira tentativa da Parte 3 (3 processos com 12 threads cada) ficou 15× mais lenta e levemente diferente; a IA percebeu pela carga da CPU, interrompeu, refez com `OMP_NUM_THREADS=4` e descartou os três treinos feitos com 12 threads. Com 4 threads os 21 treinos saíram idênticos aos versionados; isso virou a condição de reprodutibilidade documentada no README.
+  - Implementou o Eixo 1 (`pa2/ablation_cells.py`: orçamento de parâmetros igualado entre RNN, GRU e LSTM, janela T ∈ {4, 8, 16, 32}, 3 seeds, curva de gradiente por célula) e o teste de qualidade do detector (`pa2/stress/degrade.py`, `pa2/part5_detector.py`), com testes. Ao medir o gradiente da LSTM descobriu que o estado (h, c) não entrava no grafo da saída; corrigiu `MotionRNN.step` sem mudar nenhum valor numérico.
+  - Num teste rápido a IA viu que um ruído relativo de 20% destruía o detector (AP50 0,64 → 0,17) e recalibrou para 10% antes de rodar; isso está dito no relatório. As hipóteses do teste do detector foram escritas antes; o Eixo 1 não teve hipótese numérica registrada (também dito).
+  - Refez as figuras de falha da Parte 4 sobre os quadros reais.
+- **Validação / Decisões Humanas:**
+  - Os resultados que contrariaram as hipóteses foram mantidos nos relatórios (RNN simples não quebra no Eixo 1; falsos positivos quase não afetam o IDF1).
+  - Não reproduzido de forma idêntica: o modelo inicial da Parte 2 e o retreino multi-Δt da Parte 5 (documentado no README).
+

@@ -57,6 +57,11 @@ COPIES = {
         ("5c_por_que_quebra_diagnosticos.png", "final_parte5/parte5_diagnosticos.png"),
         ("5e_multi_dt_exploratorio.png", "final_parte5/parte5_multidt.png"),
     ],
+    "extras": [
+        ("E1_eixo1_celula_x_janela.png", "extra_eixo1/eixo1_celula_x_janela.png"),
+        ("E2_eixo1_gradiente_por_celula.png", "extra_eixo1/eixo1_gradiente.png"),
+        ("E3_detector_degradado.png", "final_parte5/parte5b_detector_val.png"),
+    ],
     "inferencia": [
         ("6a_MOT17-09.gif", "inferencia/MOT17-09.gif"),
     ],

@@ -12,7 +12,8 @@ Só as figuras essenciais, na ordem da fala. São cópias de `outputs/` ou gerad
 | `parte3/` | `3a` IDF1 por regime, `3b` rollout às cegas, `3c` norma do gradiente | ablação do regime de treino |
 | `parte4/` | `4a` gradiente, `4b` sobrevivência, `4c`/`4d`/`4e` três falhas, `4f` correção | memória e falhas |
 | `parte5/` | `5a` curva de IDF1, `5b` por câmera, `5c` diagnóstico, `5e` multi-Δt | queda de taxa de quadros |
+| `extras/` | `E1` Eixo 1 célula × janela, `E2` gradiente por célula, `E3` detector degradado | experimentos extras (Parte 3 e Parte 5) |
 | `inferencia/` | `6a` GIF, `6c` quadros reais | notebook de inferência (MOT17-09) |
 
-As figuras de falha da Parte 4 são caixas sobre fundo vazio; o vídeo de inferência usa os quadros reais do MOT17-09 (as imagens não são versionadas).
+As figuras de falha da Parte 4 agora usam os quadros reais do MOT17; o vídeo de inferência usa os quadros reais do MOT17-09 (as imagens não são versionadas).
 O `torchvision` é o Faster R-CNN COCO sem fine-tune e só entra na comparação da Parte 1; o resto usa o SDP.

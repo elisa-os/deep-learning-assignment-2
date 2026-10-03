@@ -349,6 +349,13 @@ Origem: revisão da Parte 2 (01/10). Fazer se sobrar tempo, na ordem.
 
 ---
 
+## Extras feitos em 03/10 (prazo estendido)
+- [x] Reexecução do zero de tudo; saídas idênticas exceto modelo inicial da Parte 2 e multi-Δt (README, "Reprodutibilidade").
+- [x] Parte 3, Eixo 1 (RNN × GRU × LSTM × T): `RELATORY_PART3.md` §8, `uv run pa2 eixo1`.
+- [x] Parte 5, qualidade do detector: `RELATORY_PART5.md` §8, `uv run pa2 5b`.
+- [x] Galeria da Parte 4 sobre quadros reais.
+- [ ] Não feitos: incerteza/portão adaptativo (opcional da Parte 2), Trilha B, Kalman real.
+
 ## Decisões pendentes
 
 | # | Decisão | Recomendação | Responsável |

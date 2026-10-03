@@ -18,7 +18,7 @@ O projeto usa [`uv`](https://docs.astral.sh/uv/) para gerenciar dependências e 
 
 ```bash
 uv sync            # cria o .venv e instala tudo (PyTorch, torchvision, scipy, pandas, matplotlib, ...)
-uv run pytest      # 159 testes (≈15 s)
+uv run pytest      # 165 testes (≈15 s)
 ```
 
 Em **Linux e Windows** o PyTorch vem do índice CUDA 11.8 (`2.7.1+cu118`, download de ~3 GB com as bibliotecas CUDA; roda também em CPU, que é o que a maior parte do projeto usa). Em **macOS** o `uv` usa o PyTorch do PyPI, na mesma versão (`2.7.1`; não testado em macOS). O pacote `pa2` é configurado via `module-root` no `pyproject.toml`.
@@ -32,6 +32,8 @@ uv run pa2 2     # Parte 2 — RNN como modelo de movimento (Trilha A; modelo in
 uv run pa2 3     # Parte 3 — ablação do regime de treino (Eixo 2; 21 treinos)                   ≈25 min
 uv run pa2 4     # Parte 4 — horizonte de memória, galeria de falhas, correção                  ≈40 min
 uv run pa2 5     # Parte 5 — teste de estresse (queda de taxa de quadros)                       ≈6 min
+uv run pa2 eixo1 # EXTRA da Parte 3 — Eixo 1: RNN × GRU × LSTM × janela de BPTT (36 treinos)        ≈40 min (3 processos)
+uv run pa2 5b    # EXTRA da Parte 5 — qualidade do detector: descarte, ruído e falsos positivos        ≈10 min
 ```
 
 Opções úteis: `--output-dir <pasta>` (não sobrescreve os resultados versionados), `--eval-only --checkpoint <ckpt>`, `--epochs N`; na Parte 3, `--seeds` e `--regimes`.
@@ -53,12 +55,12 @@ As **imagens** (`img1/`) não são versionadas (`.gitignore`): vêm do `MOT17.zi
 Treina o **modelo final** (GRU de 64 unidades, teacher forcing puro, seed 42, 20 épocas, checkpoint da última época), que é o `teacher_forcing` da ablação da Parte 3, **sem sobrescrever** o checkpoint entregue:
 
 ```bash
-uv run pa2 train-final      # ≈2 min em CPU; grava outputs/retreino/parte3_ablation/checkpoints/teacher_forcing_s42.pt
+OMP_NUM_THREADS=4 uv run pa2 train-final      # ≈3 min em CPU; grava outputs/retreino/parte3_ablation/checkpoints/teacher_forcing_s42.pt
 ```
 
 (equivale a `uv run pa2 3 --regimes teacher_forcing --seeds 42 --output-dir outputs/retreino`.)
 
-O treino usa as trajetórias do ground truth dos vídeos de treino (`pa2/config.yaml` → `parte3`). O retreino reproduz o regime mas **não bit a bit** o checkpoint entregue (threads/máquina; diferença máxima de peso medida ≈ 0,006; a conclusão da Parte 5 se mantém no retreino). Para usar o retreinado no lugar do entregue, acrescente `--install` (copia para `outputs/checkpoints/final_motion_rnn.pt`). `uv run pa2 2` treina o modelo inicial da Parte 2 (com buracos simulados e época escolhida pela validação), que não é o final.
+O treino usa as trajetórias do ground truth dos vídeos de treino (`pa2/config.yaml` → `parte3`). Com **`OMP_NUM_THREADS=4`** o retreino reproduz o checkpoint entregue **bit a bit** (conferido em 03/10, numa reexecução do zero: os 21 treinos da Parte 3 e o `final_motion_rnn.pt` saíram idênticos); com outro número de threads os pesos diferem na ordem de 1e-6 a 1e-2 (soma em ponto flutuante) e as conclusões não mudam. Para usar o retreinado no lugar do entregue, acrescente `--install` (copia para `outputs/checkpoints/final_motion_rnn.pt`). `uv run pa2 2` treina o modelo inicial da Parte 2 (com buracos simulados e época escolhida pela validação), que não é o final.
 
 ### Um comando que avalia
 
@@ -151,6 +153,7 @@ Escolhemos o **Eixo 2** (teacher forcing → scheduled sampling → free-running
 - **O que mede:** deriva (IoU com observações × só com as próprias previsões), IoU após k quadros às cegas, rastreamento nos 7 vídeos (validação = 09 e 13 é o principal), reconexão depois de buracos, e estabilidade do treino (norma do gradiente, passos não finitos, divergência).
 - **Saídas** (em `outputs/parte3_ablation/`): `parte3_summary.csv` (média ± desvio por regime), `parte3_runs.csv` (por seed), `parte3_reconnection.csv`, `parte3_tracking.png`, `parte3_shift.png`, `parte3_blind_rollout.png`, `parte3_grad_norms.png`, `runs/*.json` (brutos), `checkpoints/` (só os 6 usados adiante: `teacher_forcing` das 3 seeds e `part2_recipe`/`scheduled_sampling`/`free_running` da seed 42; os outros 15 dos 21 treinos são reproduzíveis com `uv run pa2 3`, as métricas deles estão em `runs/*.json`)
 - **Relatório:** `RELATORY_PART3.md`
+- **Extra (03/10):** o Eixo 1 também foi rodado (`uv run pa2 eixo1`, 36 treinos, saídas em `outputs/extra_eixo1/`; `RELATORY_PART3.md` §8): RNN simples, GRU e LSTM com o mesmo orçamento de parâmetros × T ∈ {4, 8, 16, 32}; a diferença entre células é pequena, e a janela curta é o que mais pesa.
 - **Status:** Implementado e executado (21 treinos). Resumo: free-running é claramente pior; teacher forcing, scheduled sampling e a receita da Parte 2 não se distinguem no IDF1; sem clipping não há instabilidade neste setup. Detalhes e limitações em `RELATORY_PART3.md`.
 
 ### Parte 4 — Galeria de falhas e horizonte de memória
@@ -178,6 +181,7 @@ Escolhemos o teste de **queda de taxa de quadros**: o vídeo é subamostrado a 1
 - **Como reproduzir:** `uv run pa2 5` (≈6 min em CPU, só com as anotações; retomável). Relatório: `RELATORY_PART5.md`.
 - **Saídas** (`outputs/final_parte5/`): `parte5_idf1_fixa.png` e `parte5_idf1_casada.png` (curva principal e variante com `max_age` casado), `parte5_idf1_camera.png` (por tipo de câmera), `parte5_por_video.png`, `parte5_estrutura.png`, `parte5_diagnosticos.png`, `parte5_multidt.png` (exploratório), `parte5_resumo.csv`/`.json`, `parte5_curva.csv` (todas as células), `parte5_diag_*.csv`, `parte5_multidt*.csv`, `checkpoints/` (modelos multi-Δt)
 - **Status:** Implementado e executado. Resumo: em 1/5 a RNN perde ~24% de IDF1 na validação (caixa parada 36%, velocidade constante 15%); a perda está nos vídeos de **câmera móvel**; alimentar Δt sem treino piora; treinar com Δt variado melhora só dentro da amostra.
+- **Extra (03/10):** o outro teste do enunciado também foi feito: **qualidade do detector** (`uv run pa2 5b`, `pa2/part5_detector.py`, `pa2/stress/degrade.py`; `RELATORY_PART5.md` §8; saídas `parte5b_*`): descarte, ruído e falsos positivos em 3 intensidades. O modelo temporal absorve parte da falha e não amplifica; o que mais machuca é o ruído nas caixas e o descarte, e os falsos positivos aleatórios quase não afetam (o `min_hits` os filtra).
 
 ---
 
@@ -209,6 +213,8 @@ deep-learning-assignment-2/
     ├── ablation.py             # Parte 3: ablação do regime de treino (Eixo 2)
     ├── part4.py                # Parte 4: horizonte de memória, galeria de falhas, correção
     ├── part5.py                # Parte 5: teste de estresse (queda de taxa de quadros)
+    ├── part5_detector.py       # Extra da Parte 5: qualidade do detector (descarte, ruído, falsos positivos)
+    ├── ablation_cells.py       # Extra da Parte 3: Eixo 1 (RNN × GRU × LSTM × janela de BPTT)
     ├── inference.py            # Inferência sobre uma pasta de sequência (tracks, contagem, vídeo); usada pelo notebook
     │
     ├── utils/                  # seed, device, exportação de métricas, gráficos (herdados do PA1)
@@ -239,7 +245,8 @@ deep-learning-assignment-2/
 - `final/`: reavaliação da Parte 2 com o modelo final (mesmos arquivos de `parte2_*`).
 - `parte3_ablation/`: ablação (resumo em CSV/PNG; `runs/` brutos; `checkpoints/` dos 21 treinos).
 - `final_parte4/`: Parte 4 (modelo final).
-- `final_parte5/`: Parte 5 (teste de estresse; `checkpoints/` = modelos multi-Δt exploratórios).
+- `final_parte5/`: Parte 5 (teste de estresse; `checkpoints/` = modelos multi-Δt exploratórios; `parte5b_*` = extra da qualidade do detector).
+- `extra_eixo1/`: extra da Parte 3 (Eixo 1: célula × janela; `runs/*.json`, checkpoints T = 32).
 
 ---
 
@@ -312,7 +319,7 @@ parte0:
 
 - **Aula dia 30/09/2026:** a Parte 0 foi executada e validada; depois foram feitas e documentadas as Partes 1 a 5 e o notebook de inferência (cada uma com o seu `RELATORY_PARTEn.md`).
 - **MOT17:** o pacote de anotações já está em `data/MOT17/`; o split por vídeo está em `pa2/mot17/loader.py`. As imagens (~5,5 GB) só são necessárias para refazer o cache do detector torchvision (Parte 1) e para o vídeo do notebook com fundo real; não são versionadas.
-- **Reprodutibilidade:** as Partes 0, 1, 2 (`--eval-only`) e 5 foram reexecutadas do zero numa revisão e reproduzem os arquivos versionados; o treino é determinístico só na mesma máquina e com as mesmas threads (ver "Um comando que treina").
+- **Reprodutibilidade (reexecução do zero em 03/10):** refizemos tudo numa cópia limpa do repositório (testes, Partes 0 a 5, nenhuma saída reaproveitada). Saíram **idênticos** (byte a byte ou até 1e-8): Parte 0, Parte 1 com as detecções públicas, os 21 treinos da Parte 3 (todas as métricas) e, em cima do modelo final, a Parte 4 (gradiente, oclusões injetadas, galeria, correção) e a curva principal da Parte 5. **Não** saíram idênticos: o modelo *inicial* da Parte 2 (`uv run pa2 2`, IDF1 de validação 0,561 contra 0,562; melhor época 8 contra 6) e o retreino exploratório multi-Δt da Parte 5 (pesos ~1e-2 de diferença). Condição: `OMP_NUM_THREADS=4` nos treinos (com 12 threads por processo e 3 processos em paralelo, o treino ficou 15× mais lento e levemente diferente).
 
 ---
 

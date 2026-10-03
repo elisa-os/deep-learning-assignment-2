@@ -1,7 +1,7 @@
 """Galeria de falhas (Parte 4): escolha dos trechos, medidas de diagnóstico e figuras.
 
-Sem as imagens do MOT17 (só as anotações), cada quadro é desenhado como um fundo vazio com as
-caixas: GT (contínuas, coloridas pelo id do GT; a identidade em foco, grossa e rotulada), tracks
+Cada quadro é desenhado sobre a imagem real do MOT17 (se ``img1/`` existir) ou, sem imagens, sobre um fundo
+vazio, com as caixas: GT (contínuas, coloridas pelo id do GT; a identidade em foco, grossa e rotulada), tracks
 previstas coloridas pelo id da track (tracejadas) e, em magenta pontilhado, a caixa que a RECORRÊNCIA previu para a track
 que a identidade tinha antes do buraco. Embaixo: centro x, centro y e IoU entre a caixa prevista
 pela recorrência e o GT ao longo do tempo, com o buraco sombreado.
@@ -97,6 +97,11 @@ def pick_failures(eps, meas: pd.DataFrame) -> dict[str, int]:
     return out
 
 
+def _read_rgb(seq: Sequence, f: int) -> np.ndarray:
+    import cv2
+    return cv2.cvtColor(cv2.imread(str(seq.image_path(f))), cv2.COLOR_BGR2RGB)
+
+
 def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_all: np.ndarray, path,
                  title: str, caption: str, save_figure, diagnosis: str = "") -> None:
     import matplotlib
@@ -118,6 +123,7 @@ def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_a
     xl, xr = max(0, x0 - mx), min(W, x1 + mx)
     yt, yb = max(0, y0 - my), min(H, y1 + my)
 
+    use_images = seq.has_images()
     rows = {int(f): [] for f in shown}
     for f in shown:
         for tr, r in assign[f - 1]:
@@ -129,6 +135,9 @@ def draw_failure(seq: Sequence, m: dict, assign, gates, D, gt_frames: dict, gt_a
         ax = fig.add_subplot(gs[0, j])
         ax.set_xlim(xl, xr); ax.set_ylim(yb, yt); ax.set_aspect("equal"); ax.set_facecolor("#f5f5f5")
         ax.set_xticks([]); ax.set_yticks([])
+        if use_images:                     # fundo: o quadro real (recortado pelos limites do eixo)
+            ax.imshow(_read_rgb(seq, f), extent=(0, W, H, 0), zorder=0, interpolation="bilinear")
+            ax.set_xlim(xl, xr); ax.set_ylim(yb, yt)
         for g in gt_all[gt_all[:, 0] == f]:
             gi, (l, t, w, h) = int(g[1]), g[2:6]
             if l > xr or l + w < xl or t > yb or t + h < yt:

@@ -126,3 +126,30 @@ treino. A medida informativa é o rollout às cegas **depois de 8 quadros observ
   para a análise empírica de sobrevivência à oclusão; a curva de gradiente ∂L/∂h (analítica) fica para o GRU.
 - A resposta da Parte 2 sobre "o estado não atravessa buracos longos" continua valendo: o IoU às cegas cai a
   ~0,15 em k = 30 em todos os regimes não degenerados, e treinar com buracos simulados não mudou isso.
+
+## 8. EXTRA (03/10): Eixo 1 — célula recorrente × janela de BPTT
+Rodado **depois** da entrega do Eixo 2, como extra (o enunciado pede um eixo; este não substitui o Eixo 2). **Não registrei hipóteses numéricas antes de rodar**; a
+expectativa teórica (aula) era "a RNN simples quebra primeiro e as células com portas seguram mais passos".
+**Desenho** (`pa2/ablation_cells.py`, `uv run pa2 eixo1`, saídas em `outputs/extra_eixo1/`): RNN × GRU × LSTM com **orçamento de parâmetros igual**
+(RNN h = 93, 18.883 parâmetros; GRU h = 64, 19.012; LSTM h = 57, 19.270), T ∈ {4, 8, 16, 32}, 3 seeds = 36 treinos; resto igual ao modelo final
+(teacher forcing, clipping ligado, 20 épocas × 100 passos, última época; validação e rastreamento sempre com janelas T = 32).
+
+| célula | T = 4 | T = 8 | T = 16 | T = 32 |
+|---|---|---|---|---|
+| RNN simples (IDF1 val) | 0,533 ± 0,005 | 0,537 ± 0,003 | 0,566 ± 0,005 | 0,566 ± 0,017 |
+| GRU | 0,521 ± 0,011 | 0,546 ± 0,006 | 0,552 ± 0,010 | **0,579 ± 0,002** |
+| LSTM | 0,538 ± 0,011 | 0,540 ± 0,006 | 0,568 ± 0,004 | 0,566 ± 0,007 |
+
+IoU às cegas em k = 10 (validação): RNN 0,335 / 0,419 / 0,478 / 0,454; GRU 0,350 / 0,452 / 0,478 / 0,464; LSTM 0,370 / 0,426 / 0,431 / 0,414 (T = 4/8/16/32).
+- **Janela:** em todas as células o IDF1 sobe de T = 4 para T = 16/32 (+0,03 a +0,06): janelas muito curtas não ensinam o filtro de ruído.
+- **Célula:** a diferença entre células é **pequena** (≤ 0,03 de IDF1, da ordem de 1 a 2 desvios). A GRU com T = 32 é a melhor (0,579), mas a RNN simples
+  empata ou ganha da GRU em T = 16 (0,566 × 0,552). **Neste setup a RNN simples não "quebra"**: a pergunta "onde a RNN simples quebra?" tem como resposta
+  "nas janelas curtas, junto com as outras; não de forma específica da célula". Isso contraria a expectativa teórica, e não testei por quê.
+- **Curva de gradiente** (`eixo1_gradiente.png`, T = 32, média de 3 seeds, mesma medida da Parte 4): a norma cai a 1/10 em k ≈ **15** na GRU, **8,7** na RNN simples e
+  **7,3** na LSTM. Ou seja, a GRU preserva o gradiente por mais passos (como a teoria diz), mas isso **não vira diferença clara de IDF1** nem de IoU às cegas.
+  (A LSTM tem o estado [h, c] de 114 números; a norma é do estado inteiro, então não é diretamente comparável com a das outras.) Às cegas o gradiente **cresce** nas três
+  células (razão em k = 31: GRU 7,0; RNN 4,7; LSTM 3,1), como na Parte 4.
+- **Estabilidade:** 0 divergências nos 36 treinos.
+- **Ressalvas:** 3 seeds e 2 vídeos de validação; diferenças menores que ~1 desvio não são distinguíveis; um lr; a célula de comparação com h diferente muda também a
+  capacidade da cabeça (64 → h na camada oculta da cabeça).
+

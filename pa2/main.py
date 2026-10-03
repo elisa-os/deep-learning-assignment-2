@@ -30,7 +30,7 @@ def main() -> None:
         "parte",
         nargs="?",
         default="0",
-        help="Número da parte a executar (0-5, default: 0) ou `train-final` (treina o modelo final)",
+        help="Número da parte a executar (0-5, default: 0) ou `train-final` (modelo final) ou `eixo1`/`5b` (extras das Partes 3 e 5)",
     )
     parser.add_argument(
         "--config",
@@ -74,6 +74,12 @@ def main() -> None:
     args = parser.parse_args()
 
     parte = args.parte
+    eixo1 = parte == "eixo1"                 # extra: Eixo 1 da Parte 3 (célula × janela de BPTT)
+    if eixo1:
+        parte = "3"
+    detector_stress = parte == "5b"          # extra: Parte 5, qualidade do detector
+    if detector_stress:
+        parte = "5"
     train_final = parte == "train-final"
     if train_final:
         # modelo final = regime `teacher_forcing`, seed 42 da Parte 3 (RELATORY_PART2.md §6)
@@ -121,6 +127,9 @@ def main() -> None:
     elif parte_int == 2:
         from pa2.part2 import run_parte2
         run_parte2(cfg, device)
+    elif parte_int == 3 and eixo1:
+        from pa2.ablation_cells import run_eixo1
+        run_eixo1(cfg, device, only_seeds=args.seeds, aggregate_only=args.aggregate_only)
     elif parte_int == 3:
         from pa2.ablation import run_ablation
         run_ablation(cfg, device, only_seeds=args.seeds, only_regimes=args.regimes,
@@ -128,6 +137,9 @@ def main() -> None:
     elif parte_int == 4:
         from pa2.part4 import run_parte4
         run_parte4(cfg, device)
+    elif parte_int == 5 and detector_stress:
+        from pa2.part5_detector import run_parte5_detector
+        run_parte5_detector(cfg, device)
     elif parte_int == 5:
         from pa2.part5 import run_parte5
         run_parte5(cfg, device)

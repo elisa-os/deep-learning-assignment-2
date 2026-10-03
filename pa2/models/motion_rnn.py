@@ -118,7 +118,7 @@ class MotionRNN(nn.Module):
         else:
             h = self.cell(x, state)
             new = h
-        o = self.head(h)
+        o = self.head(new[:, :H])          # mesmos valores de h; faz o estado (h, c) entrar no grafo (gradiente da LSTM)
         return decode(fed, o), new, o
 
     # ── janela inteira (treino / avaliação em trajetórias do GT) ─────────────
